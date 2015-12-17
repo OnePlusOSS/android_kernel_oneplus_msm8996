@@ -292,8 +292,7 @@ struct msm_spi {
 	struct mutex             core_lock;
 	struct spi_device       *spi;
 	struct spi_transfer     *cur_transfer;
-	struct completion        tx_transfer_complete;
-	struct completion        rx_transfer_complete;
+	struct completion        transfer_complete;
 	struct clk              *clk;    /* core clock */
 	struct clk              *pclk;   /* interface clock */
 	struct msm_bus_client_handle *bus_cl_hdl;
