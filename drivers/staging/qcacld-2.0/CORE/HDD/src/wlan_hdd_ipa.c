@@ -3259,10 +3259,10 @@ static int hdd_ipa_register_interface(struct hdd_ipa_priv *hdd_ipa,
 		rx_prop[IPA_IP_v6].hdr_l2_type = IPA_HDR_L2_ETHERNET_II;
 #endif
 
-		rx_prop[IPA_IP_v4].attrib.attrib_mask = IPA_FLT_META_DATA;
-		rx_prop[IPA_IP_v4].attrib.meta_data =
+		rx_prop[IPA_IP_v6].attrib.attrib_mask = IPA_FLT_META_DATA;
+		rx_prop[IPA_IP_v6].attrib.meta_data =
 			htonl(iface_context->adapter->sessionId<< 16);
-		rx_prop[IPA_IP_v4].attrib.meta_data_mask = htonl(0x00FF0000);
+		rx_prop[IPA_IP_v6].attrib.meta_data_mask = htonl(0x00FF0000);
 
 		rx_intf.num_props++;
 	}
