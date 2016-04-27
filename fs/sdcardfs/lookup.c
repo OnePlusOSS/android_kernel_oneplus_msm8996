@@ -231,12 +231,32 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 	lower_dir_mnt = lower_parent_path->mnt;
 
 	/* Use vfs_path_lookup to check if the dentry exists or not */
+	err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name, 0,
+			&lower_path);
+
+	/* check for other cases */
 	if (sbi->options.lower_fs == LOWER_FS_EXT4) {
-		err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name,
-				LOOKUP_CASE_INSENSITIVE, &lower_path);
-	} else if (sbi->options.lower_fs == LOWER_FS_FAT) {
-		err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name, 0,
-				&lower_path);
+		if (err == -ENOENT) {
+			struct dentry *child;
+			struct dentry *match = NULL;
+			spin_lock(&lower_dir_dentry->d_lock);
+			list_for_each_entry(child, &lower_dir_dentry->d_subdirs, d_child) {
+				if (child && child->d_inode) {
+					if (strcasecmp(child->d_name.name, name)==0) {
+						match = dget(child);
+						break;
+					}
+				}
+			}
+			spin_unlock(&lower_dir_dentry->d_lock);
+			if (match) {
+				err = vfs_path_lookup(lower_dir_dentry,
+							lower_dir_mnt,
+							match->d_name.name, 0,
+							&lower_path);
+				dput(match);
+			}
+		}
 	}
 
 	/* no error: handle positive dentries */
