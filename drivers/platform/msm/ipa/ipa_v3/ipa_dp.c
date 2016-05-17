@@ -17,7 +17,7 @@
 #include <linux/netdevice.h>
 #include <linux/msm_gsi.h>
 #include "ipa_i.h"
-#include "ipa_trace.h"
+#include <trace/ipa_trace_v3.h>
 
 #define IPA_LAST_DESC_CNT 0xFFFF
 #define POLLING_INACTIVITY_RX 40
