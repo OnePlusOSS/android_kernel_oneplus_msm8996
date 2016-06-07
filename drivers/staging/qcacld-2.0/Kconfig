@@ -9,6 +9,10 @@ config QCA_CLD_WLAN
 
 if QCA_CLD_WLAN != n
 
+config CONFIG_QCACLD_SPAMMY_DEBUG
+	bool "Verbose debug logging"
+	default n
+
 config QCACLD_WLAN_LFR3
 	bool "Enable the WLAN Legacy Fast Roaming feature Version 3"
 	default n

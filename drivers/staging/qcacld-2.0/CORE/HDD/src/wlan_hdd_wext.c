@@ -11289,7 +11289,7 @@ static int __iw_set_two_ints_getnone(struct net_device *dev,
     hdd_adapter_t *pAdapter = WLAN_HDD_GET_PRIV_PTR(dev);
     int *value = (int *)extra;
     int sub_cmd = value[0];
-    int ret;
+    int ret = 0;
     hdd_context_t *hdd_ctx = WLAN_HDD_GET_CTX(pAdapter);
 
     ret = wlan_hdd_validate_context(hdd_ctx);

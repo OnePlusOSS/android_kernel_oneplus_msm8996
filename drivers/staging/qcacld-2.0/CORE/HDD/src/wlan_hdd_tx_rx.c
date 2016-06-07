@@ -1121,7 +1121,9 @@ VOS_STATUS hdd_Ibss_GetStaId(hdd_station_ctx_t *pHddStaCtx, v_MACADDR_t *pMacAdd
  */
 static void __hdd_tx_timeout(struct net_device *dev)
 {
+#if defined( WLAN_DEBUG )
    hdd_adapter_t *pAdapter =  WLAN_HDD_GET_PRIV_PTR(dev);
+#endif
    struct netdev_queue *txq;
    int i = 0;
 

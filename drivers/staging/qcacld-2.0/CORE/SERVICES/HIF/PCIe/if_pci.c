@@ -2653,7 +2653,7 @@ __hif_pci_suspend(struct pci_dev *pdev, pm_message_t state, bool runtime_pm)
             goto out;
         }
 
-        pr_info("%s: Suspend completes (D0WOW)\n", __func__);
+        pr_debug("%s: Suspend completes (D0WOW)\n", __func__);
         ret = 0;
         goto out;
     }
@@ -2710,9 +2710,6 @@ skip:
                    __func__, runtime_pm ? " for runtime pm" : "",
                    wma_is_wow_mode_selected(temp_module) ? " wow" : " pdev",
                    state.event, val);
-    printk("%s: Suspend completes%s\n", __func__,
-            runtime_pm ? " for runtime pm" : "");
-
     ret = 0;
 
 out:
