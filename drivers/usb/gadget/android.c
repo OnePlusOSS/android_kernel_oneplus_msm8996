@@ -2538,7 +2538,12 @@ static unsigned int fsg_num_buffers = CONFIG_USB_GADGET_STORAGE_NUM_BUFFERS;
 #else
 #define fsg_num_buffers	CONFIG_USB_GADGET_STORAGE_NUM_BUFFERS
 #endif /* CONFIG_USB_GADGET_DEBUG_FILES */
-static struct fsg_module_parameters fsg_mod_data;
+static struct fsg_module_parameters fsg_mod_data={
+      .ro[0]  = true,
+      .removable[0] = false,
+      .cdrom[0] = true,
+      .luns   = 1,
+};
 FSG_MODULE_PARAMETERS(/* no prefix */, fsg_mod_data);
 
 static int mass_storage_function_init(struct android_usb_function *f,
@@ -3389,7 +3394,7 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 		}
 		INIT_LIST_HEAD(&conf->enabled_functions);
 	}
-
+    pr_err("android_usb: functions_store'%s'\n",buff);
 	strlcpy(buf, buff, sizeof(buf));
 	b = strim(buf);
 
@@ -3483,6 +3488,8 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	mutex_lock(&dev->mutex);
 
 	sscanf(buff, "%d", &enabled);
+	pr_err("android_usb: enable_store(%d) dev->enabled=%s\n",
+				enabled, dev->enabled ? "enabled" : "disabled");
 	if (enabled && !dev->enabled) {
 		/*
 		 * Update values in composite driver's copy of
@@ -3859,8 +3866,10 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 			do_work = true;
 	}
 	spin_unlock_irqrestore(&cdev->lock, flags);
-	if (do_work)
+	if (do_work){
+		pr_err("%s():  \n", __func__);
 		schedule_work(&dev->work);
+	}
 
 	return value;
 }

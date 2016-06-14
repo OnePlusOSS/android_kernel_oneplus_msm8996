@@ -1688,7 +1688,7 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 
 		ppol = per_cpu(polinfo, policy->cpu);
 		ppol->policy = policy;
-		ppol->target_freq = policy->cur;
+		ppol->target_freq = policy->max;
 		ppol->freq_table = freq_table;
 		ppol->p_nolim = *policy;
 		ppol->p_nolim.min = policy->cpuinfo.min_freq;

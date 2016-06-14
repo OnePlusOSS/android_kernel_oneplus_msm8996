@@ -43,7 +43,34 @@
 #include "configfs.h"
 
 #define MTP_RX_BUFFER_INIT_SIZE    1048576
+
 #define MTP_BULK_BUFFER_SIZE       16384
+
+/*
+* Currently tx and rx buffer len is 131072, inter buffer len is 28.
+* Tx buffer counts is 4, Rx is 2 and intr is 5.
+* In order avoid MTP can't work issue, use fixed memory.
+* 0xAC400000(0xffffffc02c400000) ------
+*                               |  TX  | 0x20000 * 4
+* 0xAC480000(0xffffffc02c480000) ------
+*                               |  RX  | 0x20000 * 2
+* 0xAC4C0000(0xffffffc02c4c0000) ------
+*                               | INTR | 0x40(alignment) * 5
+*                                ------
+*/
+/*0xAC400000, 0xAC420000, 0xAC440000, 0xAC460000*/
+#define MTP_TX_BUFFER_BASE           0xAC400000
+/*0xAC480000, 0xAC4A0000*/
+#define MTP_RX_BUFFER_BASE           0xAC480000
+/*0xAC4C0000, 0xAC4C0040, 0xAC4C0080, 0xAC4C00C0, 0xAC4C0100*/
+#define MTP_INTR_BUFFER_BASE         0xAC4C0000
+static int mtpBufferOffset =0;
+static bool useFixAddr = false;
+enum buf_type {
+	TX_BUFFER = 0,
+	RX_BUFFER,
+	INTR_BUFFER,
+};
 #define INTR_BUFFER_SIZE           28
 #define MAX_INST_NAME_LEN          40
 
@@ -404,18 +431,38 @@ static inline struct mtp_dev *func_to_mtp(struct usb_function *f)
 {
 	return container_of(f, struct mtp_dev, function);
 }
-
-static struct usb_request *mtp_request_new(struct usb_ep *ep, int buffer_size)
+static struct usb_request *mtp_request_new(struct usb_ep *ep, int buffer_size, enum buf_type type)
 {
 	struct usb_request *req = usb_ep_alloc_request(ep, GFP_KERNEL);
 	if (!req)
 		return NULL;
 
 	/* now allocate buffers for the requests */
-	req->buf = kmalloc(buffer_size, GFP_KERNEL);
+	if(useFixAddr == true) {
+		if(type == TX_BUFFER){
+			req->buf = __va(MTP_TX_BUFFER_BASE + mtpBufferOffset);
+		}
+		else if(type == RX_BUFFER){
+			req->buf = __va(MTP_RX_BUFFER_BASE + mtpBufferOffset);
+		}
+		else{
+			req->buf = __va(MTP_INTR_BUFFER_BASE + mtpBufferOffset);
+		}
+	}
+	else{
+		req->buf = kmalloc(buffer_size, GFP_KERNEL);
+	}
+	memset(req->buf, 0, buffer_size);
 	if (!req->buf) {
 		usb_ep_free_request(ep, req);
 		return NULL;
+	}
+
+	if(useFixAddr == true) {
+		if(buffer_size == INTR_BUFFER_SIZE)
+			mtpBufferOffset += 0x40; /*alignment*/
+		else
+			mtpBufferOffset += buffer_size;
 	}
 
 	return req;
@@ -424,7 +471,13 @@ static struct usb_request *mtp_request_new(struct usb_ep *ep, int buffer_size)
 static void mtp_request_free(struct usb_request *req, struct usb_ep *ep)
 {
 	if (req) {
-		kfree(req->buf);
+		if(useFixAddr == true) {
+			req->buf = NULL;
+			mtpBufferOffset = 0;
+		}
+		else
+			kfree(req->buf);
+
 		usb_ep_free_request(ep, req);
 	}
 }
@@ -552,10 +605,17 @@ retry_tx_alloc:
 	if (mtp_tx_req_len > MTP_BULK_BUFFER_SIZE)
 		mtp_tx_reqs = 4;
 
+	/*References from init.qcom.usb.sh*/
+	if(mtp_tx_req_len == 131072 && mtp_rx_req_len == 131072 && mtp_tx_reqs == 4)
+		useFixAddr = true;
+	else
+		useFixAddr = false;
+	pr_info("useFixAddr:%s\n", useFixAddr?"true":"false");
+	mtpBufferOffset =0;
 	/* now allocate requests for our endpoints */
 	for (i = 0; i < mtp_tx_reqs; i++) {
 		req = mtp_request_new(dev->ep_in,
-				mtp_tx_req_len + extra_buf_alloc);
+				mtp_tx_req_len + extra_buf_alloc, TX_BUFFER);
 		if (!req) {
 			if (mtp_tx_req_len <= MTP_BULK_BUFFER_SIZE)
 				goto fail;
@@ -578,9 +638,11 @@ retry_tx_alloc:
 	if (mtp_rx_req_len % 1024)
 		mtp_rx_req_len = MTP_BULK_BUFFER_SIZE;
 
+
 retry_rx_alloc:
+	mtpBufferOffset =0;
 	for (i = 0; i < RX_REQ_MAX; i++) {
-		req = mtp_request_new(dev->ep_out, mtp_rx_req_len);
+		req = mtp_request_new(dev->ep_out, mtp_rx_req_len, RX_BUFFER);
 		if (!req) {
 			if (mtp_rx_req_len <= MTP_BULK_BUFFER_SIZE)
 				goto fail;
@@ -592,15 +654,17 @@ retry_rx_alloc:
 		req->complete = mtp_complete_out;
 		dev->rx_req[i] = req;
 	}
+
+	mtpBufferOffset =0;
 	for (i = 0; i < INTR_REQ_MAX; i++) {
 		req = mtp_request_new(dev->ep_intr,
-				INTR_BUFFER_SIZE + extra_buf_alloc);
+				INTR_BUFFER_SIZE + extra_buf_alloc, INTR_BUFFER);
 		if (!req)
 			goto fail;
 		req->complete = mtp_complete_intr;
 		mtp_req_put(dev, &dev->intr_idle, req);
 	}
-
+	mtpBufferOffset =0;
 	return 0;
 
 fail:

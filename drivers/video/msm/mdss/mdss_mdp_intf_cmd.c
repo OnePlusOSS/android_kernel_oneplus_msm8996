@@ -366,6 +366,8 @@ static int mdss_mdp_cmd_tearcheck_setup(struct mdss_mdp_cmd_ctx *ctx,
 		if (mixer)
 			rc = mdss_mdp_cmd_tearcheck_cfg(mixer, ctx, locked);
 	}
+
+	
 err:
 	return rc;
 }
@@ -553,7 +555,9 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 	mdss_mdp_get_split_display_ctls(&ctl, &sctl);
 
 	ctx = (struct mdss_mdp_cmd_ctx *) ctl->intf_ctx[MASTER_CTX];
-	if (!ctx) {
+	/*yankelong add ,qcom's patch I64aba71bb4c5602df9a524b77bd8bf3296dda012 */
+	//-if (!ctx) {
+	if (!ctx || !ctx->ctl ) {
 		pr_err("%s invalid ctx\n", __func__);
 		rc = -EINVAL;
 		goto exit;
@@ -716,12 +720,13 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 	case MDP_RSRC_CTL_EVENT_STOP:
 
 		/* If we are already OFF, just return */
+		/* yankelong delete ,qcom's patch I64aba71bb4c5602df9a524b77bd8bf3296dda012
 		if (mdp5_data->resources_state ==
 				MDP_RSRC_CTL_STATE_OFF) {
 			pr_debug("resources already off\n");
 			goto exit;
 		}
-
+		*/
 		/* If pp_done is on-going, wait for it to finish */
 		mdss_mdp_cmd_wait4pingpong(ctl, NULL);
 		if (sctl)
@@ -733,6 +738,11 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 			mdss_mdp_disable_autorefresh(ctl, sctl);
 		}
 		mutex_unlock(&ctx->autorefresh_lock);
+		/*yankelong add ,qcom's patch I64aba71bb4c5602df9a524b77bd8bf3296dda012 */
+		/* Cancel early wakeup Work Item */
+		if (cancel_work_sync(&ctx->early_wakeup_clk_work))
+			pr_debug("early wakeup work canceled\n");
+		/*end*/
 
 		/*
 		 * If a pp_done happened just before the stop,
@@ -762,9 +772,10 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 		}
 
 		/* Cancel early wakeup Work Item */
+		/* yankelong delete ,qcom's patch I64aba71bb4c5602df9a524b77bd8bf3296dda012
 		if (cancel_work_sync(&ctx->early_wakeup_clk_work))
 			pr_debug("early wakeup work canceled\n");
-
+		*/
 		mutex_lock(&ctl->rsrc_lock);
 		MDSS_XLOG(ctl->num, mdp5_data->resources_state, sw_event, 0x33);
 		if ((mdp5_data->resources_state == MDP_RSRC_CTL_STATE_ON) ||
@@ -1570,21 +1581,20 @@ static int mdss_mdp_cmd_wait4pingpong(struct mdss_mdp_ctl *ctl, void *arg)
 		pr_err("%s: wait4pingpong timed out. ctl=%d rc=%d cnt=%d\n",
 				__func__,
 				ctl->num, rc, ctx->pp_timeout_report_cnt);
-		if (ctx->pp_timeout_report_cnt == 0) {
-			MDSS_XLOG(0xbad);
-			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
-				"dsi1_ctrl", "dsi1_phy", "vbif", "vbif_nrt",
-				"dbg_bus", "vbif_dbg_bus", "panic");
-		} else if (ctx->pp_timeout_report_cnt == MAX_RECOVERY_TRIALS) {
-			MDSS_XLOG(0xbad2);
-			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
-				"dsi1_ctrl", "dsi1_phy", "vbif", "vbif_nrt",
-				"dbg_bus", "vbif_dbg_bus", "panic");
-			mdss_fb_report_panel_dead(ctl->mfd);
-		}
+	if (ctx->pp_timeout_report_cnt == 0) {
+		MDSS_XLOG(0xbad);
+		MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
+			"dsi1_ctrl", "dsi1_phy", "vbif", "vbif_nrt",
+			"dbg_bus", "vbif_dbg_bus");
+	} else if (ctx->pp_timeout_report_cnt == MAX_RECOVERY_TRIALS) {
+		MDSS_XLOG(0xbad2);
+		MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
+			"dsi1_ctrl", "dsi1_phy", "vbif", "vbif_nrt",
+			"dbg_bus", "vbif_dbg_bus");
+		mdss_fb_report_panel_dead(ctl->mfd);
+	}
 		ctx->pp_timeout_report_cnt++;
 		rc = -EPERM;
-
 		mdss_mdp_irq_disable_nosync(MDSS_MDP_IRQ_PING_PONG_COMP,
 			ctx->current_pp_num);
 		mdss_mdp_set_intr_callback_nosync(MDSS_MDP_IRQ_PING_PONG_COMP,
@@ -2452,7 +2462,6 @@ int mdss_mdp_cmd_ctx_stop(struct mdss_mdp_ctl *ctl,
 		pr_debug("%s: intf stopped with panel on\n", __func__);
 		return 0;
 	}
-
 	mdss_mdp_set_intr_callback(MDSS_MDP_IRQ_PING_PONG_RD_PTR,
 		ctx->default_pp_num, NULL, NULL);
 	mdss_mdp_set_intr_callback_nosync(MDSS_MDP_IRQ_PING_PONG_COMP,

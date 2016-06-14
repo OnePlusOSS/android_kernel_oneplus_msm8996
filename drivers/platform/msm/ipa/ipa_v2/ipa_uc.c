@@ -733,7 +733,6 @@ int ipa_uc_reset_pipe(enum ipa_client_type ipa_client)
 
 	ret = ipa_uc_send_cmd(cmd.raw32b, IPA_CPU_2_HW_CMD_RESET_PIPE, 0,
 			      false, 10*HZ);
-
 	return ret;
 }
 EXPORT_SYMBOL(ipa_uc_reset_pipe);

@@ -1127,7 +1127,7 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 		return 0;
 	}
 
-	pr_debug("%s: Checking Register status\n", __func__);
+	pr_err("%s: Checking Register status\n", __func__);
 
 	mdss_dsi_clk_ctrl(ctrl_pdata, ctrl_pdata->dsi_clk_handle,
 			  MDSS_DSI_ALL_CLKS, MDSS_DSI_CLK_ON);
@@ -1135,6 +1135,7 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	sctrl_pdata = mdss_dsi_get_other_ctrl(ctrl_pdata);
 	if (!mdss_dsi_sync_wait_enable(ctrl_pdata)) {
 		ret = mdss_dsi_read_status(ctrl_pdata);
+		pr_err("%x\n",ctrl_pdata->status_buf.data[0]);
 	} else {
 		/*
 		 * Read commands to check ESD status are usually sent at
@@ -2468,8 +2469,10 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	if (req && (req->flags & CMD_REQ_HS_MODE))
 		hs_req = true;
 
-	if (!ctrl->burst_mode_enabled ||
-		(from_mdp && ctrl->shared_data->cmd_clk_ln_recovery_en)) {
+//qualcomm patch msm: mdss: fix mdp busy wait race condition
+//	if (!ctrl->burst_mode_enabled ||
+//		(from_mdp && ctrl->shared_data->cmd_clk_ln_recovery_en)) {
+	if ((!ctrl->burst_mode_enabled) || from_mdp) { 
 		/* make sure dsi_cmd_mdp is idle */
 		mdss_dsi_cmd_mdp_busy(ctrl);
 	}
@@ -2641,28 +2644,30 @@ static int dsi_event_thread(void *data)
 
 		if (todo & DSI_EV_PLL_UNLOCKED)
 			mdss_dsi_pll_relock(ctrl);
-
-		if (todo & DSI_EV_DLNx_FIFO_UNDERFLOW) {
-			mutex_lock(&ctrl->mutex);
-			if (ctrl->recovery) {
-				pr_debug("%s: Handling underflow event\n",
-							__func__);
-				mdss_dsi_clk_ctrl(ctrl, ctrl->dsi_clk_handle,
-						  MDSS_DSI_ALL_CLKS,
-						  MDSS_DSI_CLK_ON);
-				mdss_dsi_sw_reset(ctrl, true);
-				ctrl->recovery->fxn(ctrl->recovery->data,
-					MDP_INTF_DSI_CMD_FIFO_UNDERFLOW);
-				mdss_dsi_clk_ctrl(ctrl, ctrl->dsi_clk_handle,
-						  MDSS_DSI_ALL_CLKS,
-						  MDSS_DSI_CLK_OFF);
-			} else {
-				MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl",
-				"dsi0_phy", "dsi1_ctrl", "dsi1_phy", "vbif",
-				"vbif_nrt", "dbg_bus", "vbif_dbg_bus", "panic");
-			}
-			mutex_unlock(&ctrl->mutex);
+if (todo & DSI_EV_DLNx_FIFO_UNDERFLOW) {
+	mutex_lock(&ctrl->mutex);
+	if (ctrl->recovery) {
+		pr_debug("%s: Handling underflow event\n",
+					__func__);
+		mdss_dsi_clk_ctrl(ctrl, ctrl->dsi_clk_handle,
+				  MDSS_DSI_ALL_CLKS,
+				  MDSS_DSI_CLK_ON);
+		mdss_dsi_sw_reset(ctrl, true);
+		ctrl->recovery->fxn(ctrl->recovery->data,
+			MDP_INTF_DSI_CMD_FIFO_UNDERFLOW);
+		mdss_dsi_clk_ctrl(ctrl, ctrl->dsi_clk_handle,
+				  MDSS_DSI_ALL_CLKS,
+				  MDSS_DSI_CLK_OFF);
+	}
+	else{
+		MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl",
+		"dsi0_phy", "dsi1_ctrl", "dsi1_phy", "vbif",
+		"vbif_nrt", "dbg_bus", "vbif_dbg_bus", "panic");
 		}
+	mutex_unlock(&ctrl->mutex);
+
+}
+
 
 		if (todo & DSI_EV_DSI_FIFO_EMPTY) {
 			mdss_dsi_clk_ctrl(ctrl, ctrl->dsi_clk_handle,
@@ -2673,7 +2678,6 @@ static int dsi_event_thread(void *data)
 					  MDSS_DSI_CORE_CLK,
 					  MDSS_DSI_CLK_OFF);
 		}
-
 		if (todo & DSI_EV_DLNx_FIFO_OVERFLOW) {
 			mutex_lock(&dsi_mtx);
 			/*

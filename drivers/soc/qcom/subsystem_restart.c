@@ -40,6 +40,8 @@
 
 #include <asm/current.h>
 
+#include <linux/proc_fs.h>
+
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
 static uint disable_restart_work;
@@ -662,6 +664,132 @@ static struct subsys_device *find_subsys(const char *str)
 			__find_subsys);
 	return dev ? to_subsys(dev) : NULL;
 }
+
+static int val = 0;
+
+static ssize_t proc_restart_level_all_read(struct file *p_file, char __user *puser_buf, size_t count, loff_t *p_offset)
+{
+	ssize_t len = 0;
+	len = copy_to_user(puser_buf, val?"1":"0", 1);
+	pr_info("the restart level switch is:%d\n", val);
+	return len;
+}
+
+static ssize_t proc_restart_level_all_write(struct file *p_file, const char __user *puser_buf,
+			   size_t count, loff_t *p_offset)
+{
+	char temp[1] = {0};
+	struct subsys_device *subsys;
+
+	if (copy_from_user(temp, puser_buf, 1))
+		return -EFAULT;
+
+	sscanf(temp, "%d", &val);
+
+	if (!strncasecmp(&temp[0], "0", 1)) {
+		subsys = find_subsys("venus");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys("a530_zap");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys("AR6320");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys("adsp");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys("slpi");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys("modem");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+	}else if (!strncasecmp(&temp[0], "1", 1)){
+		subsys = find_subsys("venus");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys("a530_zap");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys("AR6320");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys("adsp");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys("slpi");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys("modem");
+		if (!subsys)
+			return ENODEV;
+		subsys->restart_level = RESET_SOC;
+	}
+
+	pr_info("write the restart level switch to :%d\n", val);
+	return count;
+}
+
+static const struct file_operations restart_level_all_operations = {
+    .read = proc_restart_level_all_read,
+	.write = proc_restart_level_all_write,
+};
+
+static void init_restart_level_all_node( void )
+{
+	if (!proc_create("restart_level_all", 0644, NULL,
+			 &restart_level_all_operations)){
+		pr_err("%s : Failed to register proc interface\n", __func__);
+	}
+}
+//changhua add a interface to restart modem in kernel
+static int restart_level = 0;//system original val
+int op_restart_modem(void)
+{
+    struct subsys_device *subsys = find_subsys("modem");
+	if (!subsys)
+		return -ENODEV;
+    restart_level = subsys->restart_level;
+	subsys->restart_level = RESET_SUBSYS_COUPLED;
+    #if 1
+    if (subsystem_restart("modem") == -ENODEV) {
+        pr_err("%s: SSR call failed\n", __func__);
+    }
+    #else
+    //shutdown
+    subsystem_put(subsys);
+    //boot
+    if (IS_ERR(subsystem_get("modem"))) {
+        pr_err("Peripheral Loader failed on modem.\n");
+    }
+    #endif
+    subsys->restart_level = restart_level;
+    return 0;
+}
+EXPORT_SYMBOL(op_restart_modem);
+
 
 static int subsys_start(struct subsys_device *subsys)
 {
@@ -1754,6 +1882,8 @@ static int __init subsys_restart_init(void)
 			&panic_nb);
 	if (ret)
 		goto err_soc;
+
+	init_restart_level_all_node();
 
 	return 0;
 

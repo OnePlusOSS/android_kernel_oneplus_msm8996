@@ -35,6 +35,7 @@
 #include <soc/qcom/smem.h>
 #include <soc/qcom/boot_stats.h>
 
+
 #define BUILD_ID_LENGTH 32
 #define SMEM_IMAGE_VERSION_BLOCKS_COUNT 32
 #define SMEM_IMAGE_VERSION_SINGLE_BLOCK_SIZE 128
@@ -1402,6 +1403,8 @@ static void socinfo_select_format(void)
 	}
 }
 
+volatile uint32_t chip_serial_num;
+
 int __init socinfo_init(void)
 {
 	static bool socinfo_init_done;
@@ -1429,6 +1432,11 @@ int __init socinfo_init(void)
 	boot_stats_init();
 	socinfo_print();
 	arch_read_hardware_id = msm_read_hardware_id;
+
+
+	/*read serial number*/
+	chip_serial_num = socinfo_get_serial_number();
+
 	socinfo_init_done = true;
 
 	return 0;

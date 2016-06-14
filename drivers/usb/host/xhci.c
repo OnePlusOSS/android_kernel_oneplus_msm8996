@@ -126,8 +126,8 @@ int xhci_halt(struct xhci_hcd *xhci)
 			xhci_cleanup_command_queue(xhci);
 		}
 	} else
-		xhci_warn(xhci, "Host not halted after %u microseconds.\n",
-				XHCI_MAX_HALT_USEC);
+		xhci_warn(xhci, "Host not halted after %u microseconds. ret:%d\n",
+				XHCI_MAX_HALT_USEC, ret);
 	return ret;
 }
 
@@ -2810,7 +2810,10 @@ int xhci_check_bandwidth(struct usb_hcd *hcd, struct usb_device *udev)
 	xhci_dbg(xhci, "New Input Control Context:\n");
 	xhci_dbg_ctx(xhci, virt_dev->in_ctx,
 		     LAST_CTX_TO_EP_NUM(le32_to_cpu(slot_ctx->dev_info)));
-
+	if(hcd->state == HC_STATE_QUIESCING){
+		xhci_warn(xhci, "hcd->state:%d\n",hcd->state);
+		goto command_cleanup;
+	}
 	ret = xhci_configure_endpoint(xhci, udev, command,
 			false, false);
 	if (ret)

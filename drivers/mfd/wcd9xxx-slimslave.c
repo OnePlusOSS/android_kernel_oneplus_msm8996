@@ -13,6 +13,7 @@
 #include <linux/mutex.h>
 #include <linux/mfd/wcd9xxx/wcd9xxx-slimslave.h>
 #include <linux/mfd/wcd9xxx/wcd9xxx_registers.h>
+#include <sound/sounddebug.h>
 
 struct wcd9xxx_slim_sch {
 	u16 rx_port_ch_reg_base;

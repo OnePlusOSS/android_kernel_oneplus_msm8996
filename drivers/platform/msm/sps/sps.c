@@ -2280,8 +2280,12 @@ int sps_deregister_bam_device(unsigned long dev_handle)
 
 	if (bam->props.options & SPS_BAM_HOLD_MEM) {
 		for (n = 0; n < BAM_MAX_PIPES; n++)
-			if (bam->desc_cache_pointers[n] != NULL)
+			if (bam->desc_cache_pointers[n] != NULL){
 				kfree(bam->desc_cache_pointers[n]);
+				/*Fix RAIN-1298, modified by liwei@BSP. Sometimes desc_cache will point desc_cache_pointers. 
+				If we free desc_cache_pointer , we should set desc_cache_pointer value is NULL, it will avoid wild pointer*/
+				bam->desc_cache_pointers[n] = NULL;
+			}
 	}
 
 	/* If this BAM is attached to a BAM-DMA, init the BAM-DMA device */

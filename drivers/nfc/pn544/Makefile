@@ -1,10 +1,14 @@
 #
-# Makefile for PN544 HCI based NFC driver
-#
+# Makefile for nfc devices
 
-pn544_i2c-objs  = i2c.o
-pn544_mei-objs  = mei.o
+# 15 Oct 2013, Yuyi <oppo@Independent Group>
+# Rewritten to use pn544 driver.
 
-obj-$(CONFIG_NFC_PN544)     += pn544.o
-obj-$(CONFIG_NFC_PN544_I2C) += pn544_i2c.o
-obj-$(CONFIG_NFC_PN544_MEI) += pn544_mei.o
+#obj-$(CONFIG_NFC_DEVICES)			+= pn544.o
+#obj-$(CONFIG_NFC_DEVICES)			+= p61.o
+obj-y			+= pn544.o
+obj-y			+= p61.o
+#obj-$(CONFIG_NFC_PN533)		+= pn533.o
+#obj-$(CONFIG_NFC_WILINK)	+= nfcwilink.o
+
+#ccflags-$(CONFIG_NFC_DEBUG) := -DDEBUG

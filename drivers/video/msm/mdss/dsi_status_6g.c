@@ -69,6 +69,7 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	struct mdss_overlay_private *mdp5_data = NULL;
 	struct mdss_mdp_ctl *ctl = NULL;
 	int ret = 0;
+	pr_err("%s\n",__func__);
 
 	pstatus_data = container_of(to_delayed_work(work),
 		struct dsi_status_data, check_status);

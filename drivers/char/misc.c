@@ -201,6 +201,11 @@ int misc_register(struct miscdevice * misc)
 				goto out;
 			}
 		}
+ /*If minor number is set to 1, and we call misc_register funtion and misc->minor== MISC_DYNAMIC_MINOR, maybe get minor number is 1. So de
+ *vice_create ret is fail. So we should set_bit in misc_minors
+ */
+		if(misc->minor < DYNAMIC_MINORS)
+			set_bit(DYNAMIC_MINORS - misc->minor -1, misc_minors);
 	}
 
 	dev = MKDEV(MISC_MAJOR, misc->minor);

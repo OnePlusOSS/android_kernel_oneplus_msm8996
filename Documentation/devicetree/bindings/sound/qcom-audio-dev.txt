@@ -353,6 +353,7 @@ Required properties:
 
  - qcom,cdc-rst-n-gpio :                   TLMM GPIO number
 
+
  - pinctrl-names:                          Pinctrl state names for each pin
                                            group configuration.
  - pinctrl-x:                              Defines pinctrl state for each pin

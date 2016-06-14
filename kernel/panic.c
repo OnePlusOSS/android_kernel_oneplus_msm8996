@@ -65,6 +65,8 @@ void __weak panic_smp_self_stop(void)
 		cpu_relax();
 }
 
+extern bool is_otrace_on(void);
+
 /**
  *	panic - halt the system
  *	@fmt: The text string to print
@@ -109,6 +111,21 @@ void panic(const char *fmt, ...)
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
 	pr_emerg("Kernel panic - not syncing: %s\n", buf);
+
+    //pr_info("kernel panic because of %s\n", fmt);
+	if(!is_otrace_on()) {
+        if(strcmp(fmt, "modem") == 0){
+		    atomic_notifier_call_chain(&panic_notifier_list, 0, buf);
+            kernel_restart("modem");
+        }else if(strcmp(fmt, "android") == 0){
+		    atomic_notifier_call_chain(&panic_notifier_list, 0, buf);
+            kernel_restart("android");
+        }else{
+		    atomic_notifier_call_chain(&panic_notifier_list, 0, buf);
+            kernel_restart("kernel");
+        }
+	}
+
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 	/*
 	 * Avoid nested stack-dumping if a panic occurs during oops processing

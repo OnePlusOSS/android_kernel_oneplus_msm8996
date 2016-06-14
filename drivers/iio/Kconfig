@@ -77,5 +77,6 @@ endif #IIO_TRIGGER
 source "drivers/iio/pressure/Kconfig"
 source "drivers/iio/proximity/Kconfig"
 source "drivers/iio/temperature/Kconfig"
+source "drivers/iio/CwMcuSensor/Kconfig"
 
 endif # IIO

@@ -439,6 +439,8 @@ static irqreturn_t lmh_isr_thread(int irq, void *data)
 			goto decide_next_action;
 		}
 	}
+/* david.liu@oneplus.tw,20160502  Merge QCT lmh kernel patch */
+#if 0
 	lmh_read_and_update(lmh_dat);
 	if (!lmh_dat->intr_status_val) {
 		pr_debug("LMH not throttling. Enabling interrupt\n");
@@ -446,6 +448,7 @@ static irqreturn_t lmh_isr_thread(int irq, void *data)
 		trace_lmh_event_call("Lmh Zero throttle Interrupt Clear");
 		goto decide_next_action;
 	}
+#endif
 
 decide_next_action:
 	if (lmh_dat->intr_state == LMH_ISR_POLLING)

@@ -26,7 +26,7 @@
 #include <sound/msm-dts-eagle.h>
 #include "msm-dts-srs-tm-config.h"
 #include <sound/adsp_err.h>
-
+#include <sound/sounddebug.h>
 #define TIMEOUT_MS 1000
 
 #define RESET_COPP_ID 99
@@ -2240,7 +2240,7 @@ non_mch_path:
 inval_ch_mod:
 	return rc;
 }
-
+extern int gis_24bits;
 int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	     int perf_mode, uint16_t bit_width, int app_type, int acdb_id)
 {
@@ -2248,6 +2248,11 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	int ret = 0;
 	int port_idx, copp_idx, flags;
 	int tmp_port = q6audio_get_port_id(port_id);
+    //use 24bits to get rid of 16bits innate noise
+    if(gis_24bits){
+        bit_width = 24;
+        pr_err("Open adm sepcially for offload\n");
+    }
 
 	pr_debug("%s:port %#x path:%d rate:%d mode:%d perf_mode:%d,topo_id %d\n",
 		 __func__, port_id, path, rate, channel_mode, perf_mode,
@@ -2717,7 +2722,8 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 
 	int ret = 0, port_idx;
 	int copp_id = RESET_COPP_ID;
-
+    //use 24bits to get rid of 16bits innate noise
+    gis_24bits = 0;
 	pr_debug("%s: port_id=0x%x perf_mode: %d copp_idx: %d\n", __func__,
 		 port_id, perf_mode, copp_idx);
 

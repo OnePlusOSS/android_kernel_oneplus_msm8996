@@ -267,7 +267,7 @@ static struct of_device_id msm_hs_match_table[] = {
 #define BAM_PIPE_MAX 11
 #define BUS_SCALING 1
 #define BUS_RESET 0
-#define RX_FLUSH_COMPLETE_TIMEOUT 300 /* In jiffies */
+#define RX_FLUSH_COMPLETE_TIMEOUT 500 /* In jiffies */
 #define BLSP_UART_CLK_FMAX 63160000
 
 static struct dentry *debug_base;
@@ -2563,8 +2563,17 @@ static int msm_hs_startup(struct uart_port *uport)
 
 	/* Connect RX */
 	flush_kthread_worker(&msm_uport->rx.kworker);
-	if (rx->flush != FLUSH_SHUTDOWN)
+	if (rx->flush != FLUSH_SHUTDOWN){
+                //waynechang, 20160413, wait for sps_transfer_one to prevent memory poison overwritten
+	    if(msm_uport->rx_bam_inprogress){
+		    ret = wait_event_timeout(msm_uport->rx.wait,
+		                             msm_uport->rx_bam_inprogress == false,
+					     RX_FLUSH_COMPLETE_TIMEOUT);
+            if(!ret)
+              MSM_HS_ERR("msm_serial_hs: waiting for SPS RX transfer timeout\n");
+        }
 		disconnect_rx_endpoint(msm_uport);
+	}
 	ret = msm_hs_spsconnect_rx(uport);
 	if (ret) {
 		MSM_HS_ERR("msm_serial_hs: SPS connect failed for RX");

@@ -299,6 +299,16 @@ static long msm_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 		pr_err("%s s_ctrl NULL\n", __func__);
 		return -EBADF;
 	}
+	if (cmd == 0 && arg == NULL)
+	{
+		msm_sensor_power_down(s_ctrl);
+		pr_err("ftm: power down");
+		return 0;
+	} else if (cmd ==1 && arg == NULL) {
+		msm_sensor_power_up(s_ctrl);
+		pr_err("ftm: power up");
+		return 0;
+	}
 	switch (cmd) {
 	case VIDIOC_MSM_SENSOR_CFG:
 #ifdef CONFIG_COMPAT

@@ -22,6 +22,7 @@
 #include <linux/lockdep.h>
 #include <linux/tick.h>
 #include <trace/events/power.h>
+#include <linux/sched.h>
 
 #include <trace/events/sched.h>
 
@@ -408,6 +409,8 @@ out_release:
 	trace_sched_cpu_hotplug(cpu, err, 0);
 	if (!err)
 		cpu_notify_nofail(CPU_POST_DEAD | mod, hcpu);
+
+	pr_info("%s by %s[%d]\n", __func__, current->comm, current->pid);
 	return err;
 }
 
@@ -510,7 +513,8 @@ out_notify:
 out:
 	cpu_hotplug_done();
 	trace_sched_cpu_hotplug(cpu, ret, 1);
-
+	
+	pr_info("%s by %s[%d]\n", __func__, current->comm, current->pid);
 	return ret;
 }
 
@@ -562,6 +566,7 @@ int disable_nonboot_cpus(void)
 	cpumask_clear(frozen_cpus);
 
 	pr_info("Disabling non-boot CPUs ...\n");
+	sched_set_boost(0);//Wujialong 20160314 disable sched_boost when going to sleep
 	for_each_online_cpu(cpu) {
 		if (cpu == first_cpu)
 			continue;

@@ -44,6 +44,7 @@
 #include <sound/initval.h>
 
 #include <trace/events/asoc.h>
+#include <sound/sounddebug.h>
 
 #define DAPM_UPDATE_STAT(widget, val) widget->dapm->card->dapm_stats.val++;
 

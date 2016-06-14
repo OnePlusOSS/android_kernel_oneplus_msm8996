@@ -73,6 +73,8 @@ void a5xx_snapshot(struct adreno_device *adreno_dev,
 unsigned int a5xx_num_registers(void);
 
 void a5xx_crashdump_init(struct adreno_device *adreno_dev);
+void a5xx_hwcg_set(struct adreno_device *adreno_dev, bool on);
+
 
 /* GPMU interrupt multiplexor */
 #define FW_INTR_INFO			(0)

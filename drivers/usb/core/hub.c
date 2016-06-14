@@ -576,8 +576,10 @@ static void kick_hub_wq(struct usb_hub *hub)
 	struct usb_interface *intf;
 
 	if (hub->disconnected || work_pending(&hub->events))
+	{
+	    dev_err(hub->intfdev, "%s, hub->disconnected=(%d), work_pending(&hub->events)=(%d)\n", __func__, hub->disconnected, work_pending(&hub->events));
 		return;
-
+	}
 	/*
 	 * Suppress autosuspend until the event is proceed.
 	 *
@@ -1028,6 +1030,7 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 	int status;
 	bool need_debounce_delay = false;
 	unsigned delay;
+	dev_info(hub->intfdev, "%s type=%d .\n", __func__, type);
 
 	/* Continue a partial initialization */
 	if (type == HUB_INIT2)
@@ -3566,7 +3569,7 @@ static int hub_suspend(struct usb_interface *intf, pm_message_t msg)
 		}
 	}
 
-	dev_dbg(&intf->dev, "%s\n", __func__);
+	dev_info(&intf->dev, "%s\n", __func__);
 
 	/* stop hub_wq and related activity */
 	hub_quiesce(hub, HUB_SUSPEND);
@@ -4185,11 +4188,6 @@ static void hub_set_initial_usb2_lpm_policy(struct usb_device *udev)
 	if (hub)
 		connect_type = hub->ports[udev->portnum - 1]->connect_type;
 
-	if ((udev->bos->ext_cap->bmAttributes & cpu_to_le32(USB_BESL_SUPPORT)) ||
-			connect_type == USB_PORT_CONNECT_TYPE_HARD_WIRED) {
-		udev->usb2_hw_lpm_allowed = 1;
-		usb_set_usb2_hardware_lpm(udev, 1);
-	}
 }
 
 static int hub_enable_device(struct usb_device *udev)
@@ -4513,6 +4511,7 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 	hub_set_initial_usb2_lpm_policy(udev);
 fail:
 	if (retval) {
+		dev_err(&udev->dev, "%s fail! retval = %d\n", __func__, retval);
 		hub_port_disable(hub, port1, 0);
 		update_devnum(udev, devnum);	/* for disconnect processing */
 	}
@@ -4605,6 +4604,8 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 	struct usb_port *port_dev = hub->ports[port1 - 1];
 	struct usb_device *udev = port_dev->child;
 	static int unreliable_port = -1;
+
+    dev_info(&port_dev->dev, "%s enter\n", __func__);
 
 	/* Disconnect any existing devices under this port */
 	if (udev) {
@@ -4858,7 +4859,10 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 
 	/* successfully revalidated the connection */
 	if (status == 0)
+	{
+		dev_info(&port_dev->dev, "%s status == 0 !!!\n", __func__);
 		return;
+	}
 
 	usb_unlock_port(port_dev);
 	hub_port_connect(hub, port1, portstatus, portchange);
@@ -4981,6 +4985,10 @@ static void port_event(struct usb_hub *hub, int port1)
 		usb_lock_port(port_dev);
 		connect_change = 0;
 	}
+	if(!connect_change)
+	{
+	    dev_warn(&port_dev->dev, "%s connect_change = 0\n", __func__);
+	}
 
 	if (connect_change)
 		hub_port_connect_change(hub, port1, portstatus, portchange);
@@ -5001,11 +5009,13 @@ static void hub_event(struct work_struct *work)
 	hub_dev = hub->intfdev;
 	intf = to_usb_interface(hub_dev);
 
-	dev_dbg(hub_dev, "state %d ports %d chg %04x evt %04x\n",
-			hdev->state, hdev->maxchild,
+    dev_info(hub_dev, "%s : state %d ports %d disconnected %d quiescing %d, error %d, chg %04x evt %04x wkup %04x\n",
+			__func__, hdev->state, hdev->maxchild,
 			/* NOTE: expects max 15 ports... */
+			hub->disconnected, hub->quiescing, hub->error,
 			(u16) hub->change_bits[0],
-			(u16) hub->event_bits[0]);
+			(u16) hub->event_bits[0],
+			(u16) hub->wakeup_bits[0]);
 
 	/* Lock the device, then check to see if we were
 	 * disconnected while waiting for the lock to succeed. */
@@ -5047,6 +5057,7 @@ static void hub_event(struct work_struct *work)
 	/* deal with port status changes */
 	for (i = 1; i <= hdev->maxchild; i++) {
 		struct usb_port *port_dev = hub->ports[i - 1];
+        dev_info(hub_dev, "%s i = %d, port_event? = %d\n", __func__, i, test_bit(i, hub->event_bits) || test_bit(i, hub->change_bits) || test_bit(i, hub->wakeup_bits));
 
 		if (test_bit(i, hub->event_bits)
 				|| test_bit(i, hub->change_bits)

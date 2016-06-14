@@ -71,6 +71,54 @@ static ssize_t pm_async_store(struct kobject *kobj, struct kobj_attribute *attr,
 
 power_attr(pm_async);
 
+
+static char androidboot_mode[20] = "\0";
+static int __init parse_androidboot_mode(char *str)
+{
+    if(str == NULL){
+        return -1;
+    }
+
+    snprintf(androidboot_mode, 20, "%s", str);
+    //printk(KERN_ERR "%s:  str %s\n", __func__, str);
+    return 0;
+}
+
+early_param("androidboot.mode", parse_androidboot_mode);
+
+char * get_androidboot_mode(void)
+{
+    return androidboot_mode;
+}
+EXPORT_SYMBOL_GPL(get_androidboot_mode);
+
+static ssize_t app_boot_show(struct kobject *kobj, struct kobj_attribute *attr,
+			     char *buf)
+{
+#if 1
+	return sprintf(buf, "%s", get_androidboot_mode());
+#else
+    if (reboot_reason == 0x77665501)
+        return sprintf(buf, "reboot");
+    else if (reboot_reason == 0x7766550a)
+        return sprintf(buf, "kernel");
+    else if (reboot_reason == 0x7766550b)
+        return sprintf(buf, "modem");
+    else if (reboot_reason == 0x7766550c)
+        return sprintf(buf, "android");
+    else
+        return sprintf(buf, "normal");
+#endif
+}
+
+static ssize_t app_boot_store(struct kobject *kobj, struct kobj_attribute *attr,
+			   const char *buf, size_t n)
+{
+	return 0;
+}
+
+power_attr(app_boot);
+
 #ifdef CONFIG_PM_DEBUG
 int pm_test_level = TEST_NONE;
 
@@ -609,6 +657,7 @@ static struct attribute * g[] = {
 #ifdef CONFIG_FREEZER
 	&pm_freeze_timeout_attr.attr,
 #endif
+	&app_boot_attr.attr,
 	NULL,
 };
 

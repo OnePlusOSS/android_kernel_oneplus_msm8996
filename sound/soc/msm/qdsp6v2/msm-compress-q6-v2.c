@@ -89,7 +89,8 @@ const DECLARE_TLV_DB_LINEAR(msm_compr_vol_gain, 0,
  * 40 = size of dts_eagle_param_desc + module_id cast to 64 bits
  */
 #define DTS_EAGLE_MAX_PARAM_SIZE_FOR_ALSA ((64 * 4) - 40)
-
+//use 24bits to get rid of 16bits innate noise
+int gis_24bits = 0;
 struct msm_compr_gapless_state {
 	bool set_next_stream_id;
 	int32_t stream_opened[MAX_NUMBER_OF_STREAMS];
@@ -912,7 +913,7 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 	struct snd_compr_runtime *runtime = cstream->runtime;
 	struct msm_compr_audio *prtd = runtime->private_data;
 	struct snd_soc_pcm_runtime *soc_prtd = cstream->private_data;
-	uint16_t bits_per_sample = 16;
+    uint16_t bits_per_sample = 16;
 	int dir = IN, ret = 0;
 	struct audio_client *ac = prtd->audio_client;
 	uint32_t stream_index;
@@ -929,10 +930,18 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 	};
 
 	pr_debug("%s: stream_id %d\n", __func__, ac->stream_id);
-	if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
-		bits_per_sample = 24;
-	else if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S32_LE)
-		bits_per_sample = 32;
+
+    if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
+        bits_per_sample = 24;
+    else if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S32_LE)
+        bits_per_sample = 32;
+
+    //use 24bits to get rid of 16bits innate noise
+    //mark by globale value to open adm 24bits
+    if (prtd->codec_param.codec.bit_rate == 24) {
+        bits_per_sample = 24;
+        gis_24bits = 1;
+    }
 
 	if (prtd->compr_passthr != LEGACY_PCM) {
 		ret = q6asm_open_write_compressed(ac, prtd->codec,
@@ -1032,7 +1041,6 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 	if (ret < 0) {
 		pr_err("%s, failed to send media format block\n", __func__);
 	}
-
 	return ret;
 }
 
@@ -1157,6 +1165,7 @@ static int msm_compr_free(struct snd_compr_stream *cstream)
 		pr_err("%s prtd is null\n", __func__);
 		return 0;
 	}
+
 	prtd->cmd_interrupt = 1;
 	wake_up(&prtd->drain_wait);
 	pdata = snd_soc_platform_get_drvdata(soc_prtd->platform);
@@ -1464,7 +1473,12 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 	unsigned long flags;
 	int stream_id;
 	uint32_t stream_index;
-	uint16_t bits_per_sample = 16;
+    //use 24bits to get rid of 16bits innate noise
+    //mark by globale value to open adm 24bits
+    uint16_t bits_per_sample = 16;
+    if (prtd->codec_param.codec.bit_rate == 24) {
+        bits_per_sample = 24;
+    }
 
 	if (cstream->direction != SND_COMPRESS_PLAYBACK) {
 		pr_err("%s: Unsupported stream type\n", __func__);
@@ -1836,7 +1850,6 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 			}
 			break;
 		}
-
 		if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
 			bits_per_sample = 24;
 		else if (prtd->codec_param.codec.format ==
@@ -1854,12 +1867,10 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 				 __func__);
 			break;
 		}
-
 		spin_lock_irqsave(&prtd->lock, flags);
 		prtd->gapless_state.stream_opened[stream_index] = 1;
 		prtd->gapless_state.set_next_stream_id = true;
 		spin_unlock_irqrestore(&prtd->lock, flags);
-
 		rc = msm_compr_send_media_format_block(cstream,
 						stream_id, false);
 		if (rc < 0) {
@@ -2397,7 +2408,10 @@ static int msm_compr_audio_effects_config_get(struct snd_kcontrol *kcontrol,
 	cstream = pdata->cstream[fe_id];
 	audio_effects = pdata->audio_effects[fe_id];
 	if (!cstream || !audio_effects) {
-		pr_err("%s: stream or effects inactive\n", __func__);
+        /* If ALSA framework trys to list all controls, too many errors are printed */
+        /* in some cases. Without allocating resources this error is expected. */
+        /* Reduce error level to debug. */
+        pr_debug("%s: stream or effects inactive\n", __func__);
 		return -EINVAL;
 	}
 	prtd = cstream->runtime->private_data;
@@ -2812,7 +2826,7 @@ static int msm_compr_audio_effects_config_info(struct snd_kcontrol *kcontrol,
 					       struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 128;
+	uinfo->count = MAX_PP_PARAMS_SZ;
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = 0xFFFFFFFF;
 	return 0;

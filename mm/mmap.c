@@ -1286,6 +1286,9 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 
 		get_lib_names(libs, &count);
 		for (i = 0; i < count; i++) {
+            //WayneChang, 20160601, temperally add null check to avoid count and libs mismatch, root cause need to be found
+            if(unlikely(libs[i] == NULL)) break;
+
 			if (unlikely(!strcmp(name, libs[i]))) {
 				found = true;
 				break;

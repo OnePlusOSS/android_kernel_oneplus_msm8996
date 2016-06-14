@@ -1286,7 +1286,6 @@ static int msm_csiphy_get_clk_info(struct csiphy_device *csiphy_dev,
 	char *csi_3p_clk_name = "csi_phy_3p_clk";
 	char *csi_3p_clk_src_name = "csiphy_3p_clk_src";
 	uint32_t clk_cnt = 0;
-
 	struct device_node *of_node;
 	of_node = pdev->dev.of_node;
 

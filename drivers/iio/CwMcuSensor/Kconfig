@@ -1,0 +1,21 @@
+#
+# Miscellaneous I2C chip drivers configuration
+#
+
+menu "Miscellaneous I2C Chip support"
+
+config INPUT_CWSTM32
+       tristate "CyWee CWSTM32 Sensor HUB"
+       depends on I2C && INPUT
+       select INPUT_POLLDEV
+       default y
+       help
+         This driver provides support for CWSTM32 Sensor HUB.
+
+config CWSTM32_DEBUG
+       tristate "CyWee CWSTM32 Sensor HUB DEBUG MECHANISM"
+       depends on INPUT_CWSTM32
+       help
+         This driver depends on CWSTM32 Sensor HUB for enable DEBUG.
+
+endmenu

@@ -668,6 +668,10 @@ static void regulator_dev_release(struct device *dev)
 {
 	struct regulator_dev *rdev = dev_get_drvdata(dev);
 	kfree(rdev);
+	/* Maybe rdev is free, but if rdev is not set NULL pointer,
+	 * we will access abnormal content
+	*/
+	rdev = NULL;
 }
 
 static struct class regulator_class = {

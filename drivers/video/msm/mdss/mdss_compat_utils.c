@@ -445,11 +445,10 @@ static int __compat_async_position_update(struct fb_info *info,
 
 	update_pos.input_layer_cnt = update_pos32.input_layer_cnt;
 	layer_cnt = update_pos32.input_layer_cnt;
-	if (!layer_cnt) {
-		pr_err("no async layer to update\n");
-		return -EINVAL;
-	}
-
+	if ((!layer_cnt) || (layer_cnt > MAX_LAYER_COUNT)) {
+		pr_err("invalid async layers :%d to update\n", layer_cnt);
+ 		return -EINVAL;
+ 	}
 	layer_list = __create_async_layer_list(&update_pos32,
 		layer_cnt);
 	if (IS_ERR_OR_NULL(layer_list))

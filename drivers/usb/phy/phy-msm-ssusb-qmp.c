@@ -525,11 +525,10 @@ static int msm_ssphy_qmp_init(struct usb_phy *uphy)
 	struct msm_ssphy_qmp *phy = container_of(uphy, struct msm_ssphy_qmp,
 					phy);
 	int ret;
-	unsigned init_timeout_usec = INIT_MAX_TIME_USEC;
 	u32 revid;
 	const struct qmp_reg_val *reg = NULL, *misc = NULL, *pll = NULL;
 
-	dev_dbg(uphy->dev, "Initializing QMP phy\n");
+	dev_err(uphy->dev, "Initializing QMP phy\n");
 
 	if (phy->emulation)
 		return 0;
@@ -615,22 +614,7 @@ static int msm_ssphy_qmp_init(struct usb_phy *uphy)
 	writel_relaxed(0x00, phy->base + phy->phy_reg[USB3_PHY_SW_RESET]);
 
 
-	/* Wait for PHY initialization to be done */
-	do {
-		if (readl_relaxed(phy->base +
-			phy->phy_reg[USB3_PHY_PCS_STATUS]) & PHYSTATUS)
-			usleep_range(1, 2);
-		else
-			break;
-	} while (--init_timeout_usec);
-
-	if (!init_timeout_usec) {
-		dev_err(uphy->dev, "QMP PHY initialization timeout\n");
-		dev_err(uphy->dev, "USB3_PHY_PCS_STATUS:%x\n",
-				readl_relaxed(phy->base +
-					phy->phy_reg[USB3_PHY_PCS_STATUS]));
-		return -EBUSY;
-	};
+	return -EBUSY;
 
 	return 0;
 }

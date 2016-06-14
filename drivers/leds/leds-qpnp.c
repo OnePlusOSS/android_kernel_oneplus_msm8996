@@ -2528,11 +2528,12 @@ static ssize_t duty_pcts_store(struct device *dev,
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	char *buffer;
 	ssize_t ret;
-	int i = 0;
+	int rets;
+	//int i = 0;
 	int max_duty_pcts;
 	struct pwm_config_data *pwm_cfg;
 	u32 previous_num_duty_pcts;
-	int value;
+	//int value;
 	int *previous_duty_pcts;
 
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
@@ -2563,15 +2564,21 @@ static ssize_t duty_pcts_store(struct device *dev,
 
 	buffer = (char *)buf;
 
-	for (i = 0; i < max_duty_pcts; i++) {
-		if (buffer == NULL)
-			break;
-		ret = sscanf((const char *)buffer, "%u,%s", &value, buffer);
-		pwm_cfg->old_duty_pcts[i] = value;
-		num_duty_pcts++;
-		if (ret <= 1)
-			break;
+	rets= sscanf((const char *)buffer,
+		"%x %x %x %x %x %x %x %x %x %x %x ",
+			    &pwm_cfg->old_duty_pcts[0], &pwm_cfg->old_duty_pcts[1],
+			    &pwm_cfg->old_duty_pcts[2], &pwm_cfg->old_duty_pcts[3],
+			    &pwm_cfg->old_duty_pcts[4], &pwm_cfg->old_duty_pcts[5],
+			    &pwm_cfg->old_duty_pcts[6],&pwm_cfg->old_duty_pcts[7],
+			    &pwm_cfg->old_duty_pcts[8], &pwm_cfg->old_duty_pcts[9],
+			    &pwm_cfg->old_duty_pcts[10]);
+	if(rets != 11)
+	{
+		pr_err("duty_pcts_store: Invalid paramter:%d\n", rets);
+			return -1;
 	}
+
+	num_duty_pcts = 11;
 
 	if (num_duty_pcts >= max_duty_pcts) {
 		dev_err(&led->spmi_dev->dev,
@@ -4035,6 +4042,10 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 		}
 
 		if (led->id == QPNP_ID_LED_MPP) {
+            if (!led->default_on &&  strcmp(led->cdev.name, "button-backlight") == 0)
+            {
+                __qpnp_led_work(led, led->cdev.brightness);
+            }
 			if (!led->mpp_cfg->pwm_cfg)
 				break;
 			if (led->mpp_cfg->pwm_cfg->mode == PWM_MODE) {

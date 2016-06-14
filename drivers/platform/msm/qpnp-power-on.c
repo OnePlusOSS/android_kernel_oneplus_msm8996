@@ -30,6 +30,8 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/qpnp/power-on.h>
 
+#include <linux/oem_force_dump.h>
+
 #define CREATE_MASK(NUM_BITS, POS) \
 	((unsigned char) (((1 << (NUM_BITS)) - 1) << (POS)))
 #define PON_MASK(MSB_BIT, LSB_BIT) \
@@ -776,7 +778,11 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 
 	switch (cfg->pon_type) {
 	case PON_KPDPWR:
-		pon_rt_bit = QPNP_PON_KPDPWR_N_SET;
+        pon_rt_bit = QPNP_PON_KPDPWR_N_SET;
+        if ((pon_rt_sts & pon_rt_bit) == 0)
+           pr_err("Power-Key UP\n");
+        else
+           pr_err("Power-Key DOWN\n");
 		break;
 	case PON_RESIN:
 		pon_rt_bit = QPNP_PON_RESIN_N_SET;
@@ -807,6 +813,8 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	input_sync(pon->pon_input);
 
 	cfg->old_state = !!key_status;
+
+	oem_check_force_dump_key(cfg->key_code,key_status);
 
 	return 0;
 }
@@ -994,6 +1002,44 @@ static irqreturn_t qpnp_resin_bark_irq(int irq, void *_pon)
 err_exit:
 	return IRQ_HANDLED;
 }
+
+/*20151106,wujialong add for power dump capture*/
+static int qpnp_config_reset(struct qpnp_pon *pon, struct qpnp_pon_config *cfg);
+
+static unsigned int pwr_dump_enabled = 0;
+static int param_set_pwr_dump_enabled(const char *val, struct kernel_param *kp)
+{
+	unsigned long enable;
+        struct qpnp_pon *pon = sys_reset_dev;
+        struct qpnp_pon_config *cfg = NULL;
+        int rc;
+
+	if (!val || kstrtoul(val, 0, &enable) || enable > 1)
+		return -EINVAL;
+
+	cfg = qpnp_get_cfg(pon, 0); //0 means pwr key
+	if (!cfg)
+		return -EINVAL;
+
+        pr_info("pwr_dump_enabled = %d and request enable = %d\n", pwr_dump_enabled, (unsigned int)enable);
+        if(pwr_dump_enabled !=enable){
+            cfg->s1_timer = 1352;//reduce this time
+            cfg->s2_type = 1;//change s2 type to warm reset
+            rc = qpnp_config_reset(pon, cfg);
+	    if (rc)
+                dev_err(&pon->spmi->dev,"Unable to config pon reset\n");
+
+            if(enable)//if we need enable this feature, we should diable wakeup capability
+                disable_irq_wake(cfg->state_irq);
+            else
+                enable_irq_wake(cfg->state_irq);
+            pwr_dump_enabled = enable;
+        }
+	return 0;
+}
+
+module_param_call(pwr_dump_enabled, param_set_pwr_dump_enabled, param_get_uint, &pwr_dump_enabled, 0644);
+/*20151106,wujialong add for power dump capture*/
 
 static int
 qpnp_config_pull(struct qpnp_pon *pon, struct qpnp_pon_config *cfg)
@@ -1927,6 +1973,172 @@ static int read_gen2_pon_off_reason(struct qpnp_pon *pon, u16 *reason,
 	return 0;
 }
 
+static bool created_pwr_on_off_obj;
+
+#define PMIC_SID_NUM 3
+static struct qpnp_pon *g_pon[PMIC_SID_NUM];
+static bool g_is_cold_boot[PMIC_SID_NUM];
+
+static ssize_t pwron_reason_show(struct kobject *kobj, struct kobj_attribute *attr,
+                        char *buf)
+{
+    int i;
+    int j;
+    int index;
+    u8 pon_sts;
+    int rc;
+    char *pbuf = buf;
+    int ret = 0;
+
+    sprintf(pbuf, "qpnp_pon_reason :\n");
+    ret += strlen(pbuf);
+    pbuf += strlen(pbuf);
+
+    for(i=0; i<ARRAY_SIZE(qpnp_pon_reason);i++){
+        sprintf(pbuf, "[%d] : %s\n", i, qpnp_pon_reason[i]);
+        ret += strlen(pbuf);
+        pbuf += strlen(pbuf);
+	}
+
+    for(i=0; i<PMIC_SID_NUM;i++){
+        /* PON reason */
+        if(g_pon[i]==NULL || g_pon[i]->spmi==NULL || g_pon[i]->spmi->ctrl==NULL){
+            continue;
+        }
+
+        rc = spmi_ext_register_readl(g_pon[i]->spmi->ctrl, g_pon[i]->spmi->sid,
+				    QPNP_PON_REASON1(g_pon[i]), &pon_sts, 1);
+	    if (rc){
+		    sprintf(pbuf, "PMIC@SID%d: Unable to read PON_RESASON1 reg rc: %d\n", g_pon[i]->spmi->sid, rc);
+		    ret += strlen(pbuf);
+		    pbuf += strlen(pbuf);
+		    continue;
+	    }
+        index = ffs(pon_sts)-1;
+        if (index >= ARRAY_SIZE(qpnp_pon_reason) || index < 0){
+            sprintf(pbuf, "PMIC@SID%d Power-on reason: Unknown and '%s' boot\n",
+                g_pon[i]->spmi->sid, g_is_cold_boot[g_pon[i]->spmi->sid]?"cold":"warm");
+            ret += strlen(pbuf);
+	        pbuf += strlen(pbuf);
+	        continue;
+	    }else{
+	        sprintf(pbuf, "PMIC@SID%d Power-on reason: '%s' boot and ", g_pon[i]->spmi->sid,
+	        g_is_cold_boot[g_pon[i]->spmi->sid]?"cold":"warm");
+	        ret += strlen(pbuf);
+	        pbuf += strlen(pbuf);
+	    }
+
+        for(j=0; j<ARRAY_SIZE(qpnp_pon_reason); j++){
+            index = ((pon_sts>>j)&0x1)?j:-1;
+
+            if(index>=0){
+                 sprintf(pbuf, "[%d] ", index);
+                 ret += strlen(pbuf);
+                 pbuf += strlen(pbuf);
+            }
+        }
+
+	    sprintf(pbuf, "\n");
+	    ret += strlen(pbuf);
+	    pbuf += strlen(pbuf);
+    }
+
+    if(ret){
+        *(buf+ret-1) = '\n';
+    }
+
+    return ret;
+}
+
+static ssize_t pwroff_reason_show(struct kobject *kobj, struct kobj_attribute *attr,
+                        char *buf)
+{
+    int i;
+    int j;
+    int index;
+    int rc;
+    u8 temp_buf[2];
+    u8 poff_sts;
+    char *pbuf = buf;
+    int ret = 0;
+
+    sprintf(pbuf, "qpnp_poff_reason :\n");
+    ret += strlen(pbuf);
+    pbuf += strlen(pbuf);
+
+    for(j=0; j<ARRAY_SIZE(qpnp_poff_reason);j++){
+        sprintf(pbuf, "[%d] : %s\n", j, qpnp_poff_reason[j]);
+        ret += strlen(pbuf);
+        pbuf += strlen(pbuf);
+	}
+
+    for(i=0; i<PMIC_SID_NUM;i++){
+        /* PON reason */
+        if(g_pon[i]==NULL || g_pon[i]->spmi==NULL || g_pon[i]->spmi->ctrl==NULL){
+            continue;
+        }
+
+        /* POFF reason */
+	    rc = spmi_ext_register_readl(g_pon[i]->spmi->ctrl, g_pon[i]->spmi->sid,
+	            QPNP_POFF_REASON1(g_pon[i]), temp_buf, 2);
+        if (rc){
+            sprintf(pbuf, "PMIC@SID%d: Unable to read QPNP_POFF_REASON1 reg ret: %d\n", g_pon[i]->spmi->sid, rc);
+            ret += strlen(pbuf);
+            pbuf += strlen(pbuf);
+            continue;
+	    }
+
+        poff_sts = temp_buf[0] | (temp_buf[1] << 8);
+	    index = ffs(poff_sts) - 1;
+
+        if (index >= ARRAY_SIZE(qpnp_poff_reason) || index < 0) {
+	        sprintf(pbuf, "PMIC@SID%d Power-off eason: Unknown\n", g_pon[i]->spmi->sid);
+            ret += strlen(pbuf);
+            pbuf += strlen(pbuf);
+	        continue;
+	    }else{
+	        sprintf(pbuf, "PMIC@SID%d Power-off reason: ", g_pon[i]->spmi->sid);
+	        ret += strlen(pbuf);
+            pbuf += strlen(pbuf);
+        }
+
+        for(j=0; j<ARRAY_SIZE(qpnp_poff_reason); j++){
+            index = ((poff_sts>>j)&0x1)?j:-1;
+            if(index>=0){
+                sprintf(pbuf, "[%d] ", index);
+                ret += strlen(pbuf);
+                pbuf += strlen(pbuf);
+            }
+        }
+
+	    sprintf(pbuf, "\n");
+	    ret += strlen(pbuf);
+        pbuf += strlen(pbuf);
+    }
+
+    if(ret){
+        *(buf+ret-1) = '\n';
+    }
+
+    return ret;
+}
+
+static struct kobj_attribute pwron_reason_attribute =
+        __ATTR(pwron_reason, 0444, pwron_reason_show, NULL);
+static struct kobj_attribute pwroff_reason_attribute =
+        __ATTR(pwroff_reason, 0444, pwroff_reason_show, NULL);
+
+static struct attribute *pwr_on_off_attrs[] = {
+        &pwron_reason_attribute.attr,
+        &pwroff_reason_attribute.attr,
+        NULL,
+};
+
+static struct attribute_group pwr_on_off_attrs_group = {
+        .attrs = pwr_on_off_attrs,
+};
+static struct kobject *pwr_on_off_kobj;
+
 static int qpnp_pon_probe(struct spmi_device *spmi)
 {
 	struct qpnp_pon *pon;
@@ -2095,6 +2307,11 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 				pon->spmi->sid,
 				qpnp_poff_reason[index]);
 	}
+
+    if((pon->spmi->sid)>=0 && (pon->spmi->sid)<PMIC_SID_NUM){
+        g_pon[pon->spmi->sid] = pon;
+        g_is_cold_boot[pon->spmi->sid] = cold_boot;
+    }
 
 	if (pon->pon_trigger_reason == PON_SMPL ||
 		pon->pon_power_off_reason == QPNP_POFF_REASON_UVLO) {
@@ -2269,6 +2486,17 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 	pon->store_hard_reset_reason = of_property_read_bool(
 					spmi->dev.of_node,
 					"qcom,store-hard-reset-reason");
+    if(!created_pwr_on_off_obj){
+        pwr_on_off_kobj = kobject_create_and_add("pwr_on_off_reason", NULL);
+        if (!pwr_on_off_kobj){
+            dev_err(&spmi->dev, "kobject_create_and_add for pwr_on_off_reason failed.\n");
+            //return -ENOMEM;
+        }else if(sysfs_create_group(pwr_on_off_kobj, &pwr_on_off_attrs_group)){
+            dev_err(&spmi->dev, "sysfs_create_group for pwr_on_off_reason failed.\n");
+            kobject_put(pwr_on_off_kobj);
+        }
+        created_pwr_on_off_obj = true;
+    }
 
 	qpnp_pon_debugfs_init(spmi);
 	return 0;

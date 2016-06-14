@@ -22,13 +22,16 @@
 #include "mdss_mdp.h"
 #include "mdss_debug.h"
 
+
 #ifdef CONFIG_FB_MSM_MDSS_XLOG_DEBUG
-#define XLOG_DEFAULT_ENABLE 1
+#define XLOG_DEFAULT_ENABLE 0 /*gzm add for qualcomm bug for esd check recovery-20160128 */
 #else
 #define XLOG_DEFAULT_ENABLE 0
 #endif
 
-#define XLOG_DEFAULT_PANIC 1
+
+#define XLOG_DEFAULT_PANIC 0
+
 #define XLOG_DEFAULT_REGDUMP 0x2 /* dump in RAM */
 #define XLOG_DEFAULT_DBGBUSDUMP 0x2 /* dump in RAM */
 #define XLOG_DEFAULT_VBIF_DBGBUSDUMP 0x2 /* dump in RAM */

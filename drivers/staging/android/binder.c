@@ -702,6 +702,11 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 		buffer = rb_entry(best_fit, struct binder_buffer, rb_node);
 		buffer_size = binder_buffer_size(proc, buffer);
 	}
+	if(buffer->data == NULL){
+		pr_err("%d: binder_alloc_buf size %zd failed, buffer data is NULL\n",
+			proc->pid, size);
+		return NULL;
+	}
 
 	binder_debug(BINDER_DEBUG_BUFFER_ALLOC,
 		     "%d: binder_alloc_buf size %zd got buffer %p size %zd\n",

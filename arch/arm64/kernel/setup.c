@@ -94,7 +94,33 @@ unsigned int cold_boot;
 EXPORT_SYMBOL(cold_boot);
 
 static const char *cpu_name;
+static const char *machine_name;
 phys_addr_t __fdt_pointer __initdata;
+
+#define MAX_ITEM 4
+#define MAX_LENGTH 32
+
+enum
+{
+        serialno = 0,
+        hw_version,
+        rf_version,
+        ddr_manufacture_info
+};
+
+char oem_serialno[16];
+char oem_hw_version[3];
+char oem_rf_version[3];
+char oem_ddr_manufacture_info[16];
+
+const char cmdline_info[MAX_ITEM][MAX_LENGTH] =
+{
+	"androidboot.serialno=",
+	"androidboot.hw_version=",
+	"androidboot.rf_version=",
+	"ddr_manufacture_info=",
+};
+
 
 /*
  * Standard memory resources
@@ -326,7 +352,10 @@ static void __init setup_machine_fdt(phys_addr_t dt_phys)
 			cpu_relax();
 	}
 
-	dump_stack_set_arch_desc("%s (DT)", of_flat_dt_get_machine_name());
+	machine_name = of_flat_dt_get_machine_name();
+	dump_stack_set_arch_desc("%s (DT)", machine_name);
+	if (machine_name)
+		pr_info("Machine: %s\n", machine_name);
 }
 
 /*
@@ -374,6 +403,35 @@ static void __init request_standard_resources(void)
 		    kernel_data.end <= res->end)
 			request_resource(res, &kernel_data);
 	}
+}
+
+static int __init device_info_init(void)
+{
+	int i, j;
+	char *substr, *target_str;
+
+	for(i=0; i<MAX_ITEM; i++)
+	{
+		substr = strstr(boot_command_line, cmdline_info[i]);
+		if(substr != NULL)
+			substr += strlen(cmdline_info[i]);
+		else
+			continue;
+
+		if(i == serialno)
+			target_str = oem_serialno;
+		else if(i == hw_version)
+			target_str = oem_hw_version;
+		else if(i == rf_version)
+			target_str = oem_rf_version;
+		else if(i == ddr_manufacture_info)
+			target_str = oem_ddr_manufacture_info;
+
+		for(j=0; substr[j] != ' '; j++)
+			target_str[j] = substr[j];
+		target_str[j] = '\0';
+	}
+	return 1;
 }
 
 u64 __cpu_logical_map[NR_CPUS] = { [0 ... NR_CPUS-1] = INVALID_HWID };
@@ -434,6 +492,7 @@ void __init setup_arch(char **cmdline_p)
 #endif
 #endif
 	init_random_pool();
+	device_info_init();
 }
 
 static int __init arm64_device_init(void)
@@ -554,6 +613,13 @@ static int c_show(struct seq_file *m, void *v)
 		seq_printf(m, "CPU part\t: 0x%03x\n", MIDR_PARTNUM(midr));
 		seq_printf(m, "CPU revision\t: %d\n\n", MIDR_REVISION(midr));
 	}
+
+	if (!arch_read_hardware_id)
+		seq_printf(m, "Hardware\t: %s\n", machine_name);
+	else
+		seq_printf(m, "Hardware\t: %s\n", arch_read_hardware_id());
+	seq_printf(m, "Processor\t: %s rev %d (%s)\n",
+			cpu_name, read_cpuid_id() & 15, ELF_PLATFORM);
 
 	return 0;
 }

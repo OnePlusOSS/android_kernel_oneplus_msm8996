@@ -468,6 +468,9 @@ static bool glink_xprt_notify_rx_intent_req(void *handle, const void *priv,
 	struct ipc_router_glink_xprt *glink_xprtp =
 		(struct ipc_router_glink_xprt *)priv;
 
+	if (sz <= DEFAULT_RX_INTENT_SIZE)
+	    return true;
+
 	qrx_intent_work = kmalloc(sizeof(struct queue_rx_intent_work),
 				  GFP_KERNEL);
 	if (!qrx_intent_work) {

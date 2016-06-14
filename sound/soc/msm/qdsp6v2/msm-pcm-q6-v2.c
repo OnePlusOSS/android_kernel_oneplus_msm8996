@@ -459,7 +459,6 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 		pr_debug("%s: cmd cfg pcm was block failed", __func__);
 
 	prtd->enabled = RUNNING;
-
 	return ret;
 }
 
@@ -819,7 +818,6 @@ static int msm_pcm_capture_close(struct snd_pcm_substream *substream)
 	msm_pcm_routing_dereg_phy_stream(soc_prtd->dai_link->be_id,
 		SNDRV_PCM_STREAM_CAPTURE);
 	kfree(prtd);
-
 	return 0;
 }
 

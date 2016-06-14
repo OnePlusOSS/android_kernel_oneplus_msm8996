@@ -2327,6 +2327,13 @@ int cpufreq_update_policy(unsigned int cpu)
 
 	if (!policy)
 		return -ENODEV;
+    /* when CPU online/offline, kobj(sysfs) would create/delete after/before online maske change
+     * If we get policy during this moment, we'll get an uninitial/null kobj in cpu policy
+     * online has been solved by QCOM a532c01574631f23aba991d6bab97771d5141290
+     * for safety, this check supposed to avoid both condition.
+     */
+	if(!(&policy->kobj))
+		return -ENODEV;
 
 	down_write(&policy->rwsem);
 
