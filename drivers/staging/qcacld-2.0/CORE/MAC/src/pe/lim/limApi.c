@@ -291,6 +291,7 @@ static void __limInitVars(tpAniSirGlobal pMac)
     /* Init SAP deffered Q Head */
     lim_init_sap_deferred_msg_queue(pMac);
 #endif
+    pMac->lim.gpLimMlmOemDataReq = NULL;
 }
 
 static void __limInitAssocVars(tpAniSirGlobal pMac)
@@ -988,6 +989,7 @@ tSirRetStatus peOpen(tpAniSirGlobal pMac, tMacOpenParameters *pMacOpenParam)
                                         pMac->lim.maxStation, 0);
 
     pMac->lim.mgmtFrameSessionId = 0xff;
+    pMac->lim.tdls_frm_session_id = 0xff;
     pMac->lim.deferredMsgCnt = 0;
 
     if (!VOS_IS_STATUS_SUCCESS(vos_lock_init(&pMac->lim.lkPeGlobalLock))) {
@@ -1047,6 +1049,10 @@ tSirRetStatus peClose(tpAniSirGlobal pMac)
     pMac->lim.limTimers.gpLimCnfWaitTimer = NULL;
 
     if (pMac->lim.gpLimMlmOemDataReq) {
+        if (pMac->lim.gpLimMlmOemDataReq->data) {
+            vos_mem_free(pMac->lim.gpLimMlmOemDataReq->data);
+            pMac->lim.gpLimMlmOemDataReq->data = NULL;
+        }
         vos_mem_free(pMac->lim.gpLimMlmOemDataReq);
         pMac->lim.gpLimMlmOemDataReq = NULL;
     }
@@ -1233,6 +1239,21 @@ limPostMsgApi(tpAniSirGlobal pMac, tSirMsgQ *pMsg)
 
 } /*** end limPostMsgApi() ***/
 
+/**
+ * lim_post_msg_high_pri() - posts high priority pe message
+ * @mac: mac context
+ * @msg: message to be posted
+ *
+ * This function is used to post high priority pe message
+ *
+ * Return: returns value returned by vos_mq_post_message_by_priority
+ */
+uint32_t
+lim_post_msg_high_pri(tpAniSirGlobal mac, tSirMsgQ *msg)
+{
+	return vos_mq_post_message_by_priority(VOS_MQ_ID_PE, (vos_msg_t *)msg,
+					       HIGH_PRIORITY);
+}
 
 /*--------------------------------------------------------------------------
 

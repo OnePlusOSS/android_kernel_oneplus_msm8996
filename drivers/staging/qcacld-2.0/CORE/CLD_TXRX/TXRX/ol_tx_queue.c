@@ -884,7 +884,8 @@ ol_txrx_peer_link_status_handler(
 		return;
 	}
 
-	TX_SCHED_DEBUG_PRINT_ALWAYS("%s: peer_num %d\n", __func__, peer_num);
+	VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_DEBUG,
+		  "%s: peer_num %d", __func__, peer_num);
 
 	for (i = 0; i < peer_num; i++) {
 		u_int16_t peer_limit, peer_id;

@@ -967,10 +967,11 @@ typedef struct sSirSmeScanChanReq
 
 typedef struct sSirOemDataReq
 {
-    tANI_U16              messageType; //eWNI_SME_OEM_DATA_REQ
+    tANI_U16              messageType; /* eWNI_SME_OEM_DATA_REQ */
     tANI_U16              messageLen;
     tSirMacAddr           selfMacAddr;
-    tANI_U8               oemDataReq[OEM_DATA_REQ_SIZE];
+    uint8_t               data_len;
+    uint8_t               *data;
 } tSirOemDataReq, *tpSirOemDataReq;
 
 typedef struct sSirOemDataRsp
@@ -2281,6 +2282,14 @@ typedef struct sAniDHCPStopInd
 
 } tAniDHCPInd, *tpAniDHCPInd;
 
+typedef struct sAniTXFailMonitorInd
+{
+    tANI_U16                msgType; // message type is same as the request type
+    tANI_U16                msgLen;  // length of the entire request
+    tANI_U8                 tx_fail_count;
+    void                    *txFailIndCallback;
+} tAniTXFailMonitorInd, *tpAniTXFailMonitorInd;
+
 typedef struct sAniSummaryStatsInfo
 {
     tANI_U32 retry_cnt[4];         //Total number of packets(per AC) that were successfully transmitted with retries
@@ -3487,14 +3496,43 @@ typedef struct sSirSmeCoexInd
 
 typedef struct sSirSmeMgmtFrameInd
 {
-    tANI_U16        mesgType;
-    tANI_U16        mesgLen;
+    uint16_t        frame_len;
     tANI_U32        rxChan;
     tANI_U8        sessionId;
     tANI_U8         frameType;
     tANI_S8         rxRssi;
     tANI_U8  frameBuf[1]; //variable
 }tSirSmeMgmtFrameInd, *tpSirSmeMgmtFrameInd;
+
+
+typedef void (*sir_mgmt_frame_ind_callback)(tSirSmeMgmtFrameInd *frame_ind);
+/**
+ * struct sir_sme_mgmt_frame_cb_req - Register a
+ * management frame callback req
+ * @message_type: message id
+ * @length: msg length
+ * @callback: callback for management frame indication
+ */
+struct sir_sme_mgmt_frame_cb_req {
+	uint16_t message_type;
+	uint16_t length;
+	sir_mgmt_frame_ind_callback callback;
+};
+
+typedef void (*sir_p2p_ack_ind_callback)(uint32_t session_id,
+					bool tx_completion_status);
+
+/**
+ * struct sir_p2p_ack_ind_cb_req - Register a p2p ack ind callback req
+ * @message_type: message id
+ * @length: msg length
+ * @callback: callback for p2p ack indication
+ */
+struct sir_sme_p2p_ack_ind_cb_req {
+	uint16_t message_type;
+	uint16_t length;
+	sir_p2p_ack_ind_callback callback;
+};
 
 #ifdef WLAN_FEATURE_11W
 typedef struct sSirSmeUnprotMgmtFrameInd
@@ -3778,6 +3816,8 @@ struct roam_ext_params {
 
 typedef struct sSirRoamOffloadScanReq
 {
+  uint16_t    message_type;
+  uint16_t    length;
   eAniBoolean RoamScanOffloadEnabled;
   eAniBoolean MAWCEnabled;
   tANI_S8     LookupThreshold;
@@ -3849,14 +3889,6 @@ typedef struct sSirRoamOffloadScanRsp
   tANI_U32 reason;
 } tSirRoamOffloadScanRsp, *tpSirRoamOffloadScanRsp;
 
-struct sir_sme_roam_restart_req
-{
-	tANI_U16 message_type;
-	tANI_U16 length;
-	tANI_U8  sme_session_id;
-	tANI_U8  command;
-	tANI_U8  reason;
-};
 #endif //WLAN_FEATURE_ROAM_SCAN_OFFLOAD
 
 #define SIR_NOCHANGE_POWER_VALUE  0xFFFFFFFF
@@ -4571,6 +4603,48 @@ typedef struct sSirDelPeriodicTxPtrn
    tANI_U8  ucPtrnId;           // Pattern ID
 } tSirDelPeriodicTxPtrn, *tpSirDelPeriodicTxPtrn;
 
+/*---------------------------------------------------------------------------
+* tSirIbssGetPeerInfoReqParams
+*--------------------------------------------------------------------------*/
+typedef struct
+{
+    tANI_BOOLEAN    allPeerInfoReqd; // If set, all IBSS peers stats are reported
+    tANI_U8         staIdx;          // If allPeerInfoReqd is not set, only stats
+                                     // of peer with staIdx is reported
+}tSirIbssGetPeerInfoReqParams, *tpSirIbssGetPeerInfoReqParams;
+
+/**
+ * typedef struct - tSirIbssGetPeerInfoParams
+ * @mac_addr: mac address received from target
+ * @txRate: TX rate
+ * @mcsIndex: MCS index
+ * @txRateFlags: TX rate flags
+ * @rssi: RSSI
+ */
+typedef struct {
+   uint8_t  mac_addr[VOS_MAC_ADDR_SIZE];
+   uint32_t txRate;
+   uint32_t mcsIndex;
+   uint32_t txRateFlags;
+   int8_t  rssi;
+}tSirIbssPeerInfoParams;
+
+typedef struct
+{
+   tANI_U32   status;
+   tANI_U8    numPeers;
+   tSirIbssPeerInfoParams  peerInfoParams[32];
+}tSirPeerInfoRspParams, *tpSirIbssPeerInfoRspParams;
+
+/*---------------------------------------------------------------------------
+* tSirIbssGetPeerInfoRspParams
+*--------------------------------------------------------------------------*/
+typedef struct
+{
+   tANI_U16   mesgType;
+   tANI_U16   mesgLen;
+   tSirPeerInfoRspParams ibssPeerInfoRspParams;
+} tSirIbssGetPeerInfoRspParams, *tpSirIbssGetPeerInfoRspParams;
 
 typedef struct
 {
@@ -4716,6 +4790,7 @@ typedef struct sSirModifyIE
    tANI_U8          ieIDLen;   /*ie length as per spec*/
    tANI_U16         ieBufferlength;
    tANI_U8         *pIEBuffer;
+   int32_t          oui_length;
 
 }tSirModifyIE,    *tpSirModifyIE;
 
@@ -6498,6 +6573,17 @@ struct udp_resp_offload {
 };
 
 /**
+ * struct beacon_filter_param - parameters for beacon filtering
+ * @vdev_id: vdev id
+ * @ie_map: bitwise map of IEs that needs to be filtered
+ *
+ */
+struct beacon_filter_param {
+	uint32_t   vdev_id;
+	uint32_t   ie_map[8];
+};
+
+/**
  * struct smps_force_mode_event - smps force mode event param
  * @message_type: Type of message
  * @length: length
@@ -6511,4 +6597,18 @@ struct sir_smps_force_mode_event {
 	uint8_t    vdev_id;
 	uint8_t    status;
 };
+
+
+/**
+ * struct sir_del_all_tdls_peers - delete all tdls peers
+ * @msg_type: type of message
+ * @msg_len: length of message
+ * bssid: bssid of peer device
+ */
+struct sir_del_all_tdls_peers {
+	uint16_t msg_type;
+	uint16_t msg_len;
+	tSirMacAddr bssid;
+};
+
 #endif /* __SIR_API_H */

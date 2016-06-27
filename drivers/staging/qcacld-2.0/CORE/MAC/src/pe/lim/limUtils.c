@@ -766,30 +766,25 @@ limCleanupMlm(tpAniSirGlobal pMac)
      * each STA associated per BSSId and deactivate/delete
      * the pmfSaQueryTimer for it
      */
-    if (vos_is_logp_in_progress(VOS_MODULE_ID_PE, NULL))
+    for (bss_entry = 0; bss_entry < pMac->lim.maxBssId; bss_entry++)
     {
-        VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_ERROR,
-                  FL("SSR is detected, proceed to clean up pmfSaQueryTimer"));
-        for (bss_entry = 0; bss_entry < pMac->lim.maxBssId; bss_entry++)
-        {
-             if (pMac->lim.gpSession[bss_entry].valid)
+         if (pMac->lim.gpSession[bss_entry].valid)
+         {
+             for (sta_entry = 1; sta_entry < pMac->lim.gLimAssocStaLimit;
+                  sta_entry++)
              {
-                 for (sta_entry = 1; sta_entry < pMac->lim.gLimAssocStaLimit;
-                      sta_entry++)
-                 {
-                      psessionEntry = &pMac->lim.gpSession[bss_entry];
-                      pStaDs = dphGetHashEntry(pMac, sta_entry,
-                                              &psessionEntry->dph.dphHashTable);
-                      if (NULL == pStaDs)
-                      {
-                          continue;
-                      }
-                      VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_ERROR,
-                                FL("Deleting pmfSaQueryTimer for staid[%d]"),
-                                pStaDs->staIndex) ;
-                      tx_timer_deactivate(&pStaDs->pmfSaQueryTimer);
-                      tx_timer_delete(&pStaDs->pmfSaQueryTimer);
-                }
+                  psessionEntry = &pMac->lim.gpSession[bss_entry];
+                  pStaDs = dphGetHashEntry(pMac, sta_entry,
+                                          &psessionEntry->dph.dphHashTable);
+                  if (NULL == pStaDs)
+                  {
+                      continue;
+                  }
+                  VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_ERROR,
+                            FL("Deleting pmfSaQueryTimer for staid[%d]"),
+                            pStaDs->staIndex) ;
+                  tx_timer_deactivate(&pStaDs->pmfSaQueryTimer);
+                  tx_timer_delete(&pStaDs->pmfSaQueryTimer);
             }
         }
     }
@@ -8676,3 +8671,99 @@ lim_get_80Mhz_center_channel(uint8_t primary_channel)
 
 	return HAL_INVALID_CHANNEL_ID;
 }
+
+/**
+ * lim_is_ext_cap_ie_present - checks if ext ie is present
+ * @ext_cap: extended IEs structure
+ *
+ * Return: true if ext IEs are present else false
+ */
+bool lim_is_ext_cap_ie_present (struct s_ext_cap *ext_cap)
+{
+	int i, size;
+	uint8_t *tmp_buf;
+
+	tmp_buf = (uint8_t *) ext_cap;
+	size = sizeof(*ext_cap);
+
+	for (i = 0; i < size; i++)
+		if (tmp_buf[i])
+			return true;
+
+	return false;
+}
+
+/**
+ * lim_is_robust_mgmt_action_frame() - Check if action catagory is
+ * robust action frame
+ * @action_catagory: Action frame catagory.
+ *
+ * This function is used to check if given action catagory is robust
+ * action frame.
+ *
+ * Return: bool
+ */
+bool lim_is_robust_mgmt_action_frame(uint8_t action_catagory)
+{
+	switch (action_catagory) {
+		/*
+		 * NOTE: This function doesn't take care of the DMG
+		 * (Directional Multi-Gigatbit) BSS case as 8011ad
+		 * support is not yet added. In future, if the support
+		 * is required then this function need few more arguments
+		 * and little change in logic.
+		 */
+		case SIR_MAC_ACTION_SPECTRUM_MGMT:
+		case SIR_MAC_ACTION_QOS_MGMT:
+		case SIR_MAC_ACTION_DLP:
+		case SIR_MAC_ACTION_BLKACK:
+		case SIR_MAC_ACTION_RRM:
+		case SIR_MAC_ACTION_FAST_BSS_TRNST:
+		case SIR_MAC_ACTION_SA_QUERY:
+		case SIR_MAC_ACTION_PROT_DUAL_PUB:
+		case SIR_MAC_ACTION_WNM:
+		case SIR_MAC_ACITON_MESH:
+		case SIR_MAC_ACTION_MHF:
+		case SIR_MAC_ACTION_FST:
+			return true;
+		default:
+			VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_INFO,
+				FL("non-PMF action category[%d] "),
+				action_catagory);
+		break;
+	}
+	return false;
+}
+
+/**
+ * lim_update_caps_info_for_bss - Update capability info for this BSS
+ *
+ * @mac_ctx: mac context
+ * @caps: Pointer to capability info to be updated
+ * @bss_caps: Capability info of the BSS
+ *
+ * Update the capability info in Assoc/Reassoc request frames and reset
+ * the spectrum management, short preamble, immediate block ack bits
+ * if the BSS doesnot support it
+ *
+ * Return: None
+ */
+void lim_update_caps_info_for_bss(tpAniSirGlobal mac_ctx,
+					uint16_t *caps, uint16_t bss_caps)
+{
+	if (!(bss_caps & LIM_SPECTRUM_MANAGEMENT_BIT_MASK)) {
+		*caps &= (~LIM_SPECTRUM_MANAGEMENT_BIT_MASK);
+		limLog(mac_ctx, LOG1, FL("Clearing spectrum management:no AP support"));
+	}
+
+	if (!(bss_caps & LIM_SHORT_PREAMBLE_BIT_MASK)) {
+		*caps &= (~LIM_SHORT_PREAMBLE_BIT_MASK);
+		limLog(mac_ctx, LOG1, FL("Clearing short preamble:no AP support"));
+	}
+
+	if (!(bss_caps & LIM_IMMEDIATE_BLOCK_ACK_MASK)) {
+		*caps &= (~LIM_IMMEDIATE_BLOCK_ACK_MASK);
+		limLog(mac_ctx, LOG1, FL("Clearing Immed Blk Ack:no AP support"));
+	}
+}
+

@@ -158,6 +158,7 @@ void pe_reset_protection_callback(void *ptr)
 
     old_op_mode = pe_session_entry->htOperMode;
     pe_session_entry->htOperMode = eSIR_HT_OP_MODE_PURE;
+    mac_ctx->lim.gHTOperMode = eSIR_HT_OP_MODE_PURE;
 
     vos_mem_zero(&beacon_params, sizeof(tUpdateBeaconParams));
     /* index 0, is self node, peers start from 1 */
@@ -661,18 +662,21 @@ void peDeleteSession(tpAniSirGlobal pMac, tpPESession psessionEntry)
     {
         vos_mem_free( psessionEntry->beacon);
         psessionEntry->beacon = NULL;
+        psessionEntry->bcnLen = 0;
     }
 
     if (psessionEntry->assocReq != NULL)
     {
         vos_mem_free( psessionEntry->assocReq);
         psessionEntry->assocReq = NULL;
+        psessionEntry->assocReqLen = 0;
     }
 
     if (psessionEntry->assocRsp != NULL)
     {
         vos_mem_free( psessionEntry->assocRsp);
         psessionEntry->assocRsp = NULL;
+        psessionEntry->assocRspLen = 0;
     }
 
 

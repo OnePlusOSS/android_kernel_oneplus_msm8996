@@ -306,6 +306,8 @@ typedef void (*pWDATxRxCompFunc)( v_PVOID_t pContext, void *pData,
 //parameter 2 - txComplete status : 1- success, 0 - failure.
 typedef eHalStatus (*pWDAAckFnTxComp)(tpAniSirGlobal, tANI_U32);
 
+typedef void (*WDA_txFailIndCallback)(tANI_U8 *, tANI_U8);
+
 /* generic callback for updating parameters from target to UMAC */
 typedef void (*wda_tgt_cfg_cb) (void *context, void *param);
 
@@ -403,7 +405,8 @@ typedef struct
    /* Event to wait for WDA stop on FTM mode */
    vos_event_t          ftmStopDoneEvent;
 
-} tWDA_CbContext ; 
+   WDA_txFailIndCallback txFailIndCallback;
+} tWDA_CbContext ;
 
 typedef struct
 {
@@ -860,6 +863,8 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 #define WDA_DHCP_START_IND              SIR_HAL_DHCP_START_IND
 #define WDA_DHCP_STOP_IND               SIR_HAL_DHCP_STOP_IND
 
+#define WDA_TX_FAIL_MONITOR_IND         SIR_HAL_TX_FAIL_MONITOR_IND
+
 #define WDA_HIDDEN_SSID_VDEV_RESTART    SIR_HAL_HIDE_SSID_VDEV_RESTART
 
 #ifdef WLAN_FEATURE_GTK_OFFLOAD
@@ -928,10 +933,12 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 #define WDA_RMC_DISABLE_IND         SIR_HAL_RMC_DISABLE_IND
 #define WDA_RMC_ACTION_PERIOD_IND   SIR_HAL_RMC_ACTION_PERIOD_IND
 
+/* IBSS peer info related message */
 #define WDA_GET_IBSS_PEER_INFO_REQ  SIR_HAL_IBSS_PEER_INFO_REQ
 #define WDA_GET_IBSS_PEER_INFO_RSP  SIR_HAL_IBSS_PEER_INFO_RSP
 
 #define WDA_IBSS_CESIUM_ENABLE_IND  SIR_HAL_IBSS_CESIUM_ENABLE_IND
+
 #define WDA_INIT_BAD_PEER_TX_CTL_INFO_CMD   SIR_HAL_BAD_PEER_TX_CTL_INI_CMD
 
 #ifdef FEATURE_WLAN_TDLS
@@ -1066,6 +1073,8 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 
 #define WDA_UPDATE_WEP_DEFAULT_KEY            SIR_HAL_UPDATE_WEP_DEFAULT_KEY
 
+#define WDA_ADD_BCN_FILTER_CMDID              SIR_HAL_ADD_BCN_FILTER_CMDID
+#define WDA_REMOVE_BCN_FILTER_CMDID           SIR_HAL_REMOVE_BCN_FILTER_CMDID
 
 
 tSirRetStatus wdaPostCtrlMsg(tpAniSirGlobal pMac, tSirMsgQ *pMsg);

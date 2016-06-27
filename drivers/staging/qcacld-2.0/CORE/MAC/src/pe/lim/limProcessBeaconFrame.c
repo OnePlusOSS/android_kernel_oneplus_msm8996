@@ -171,6 +171,7 @@ limProcessBeaconFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
             {
                 vos_mem_free(psessionEntry->beacon);
                 psessionEntry->beacon = NULL;
+                psessionEntry->bcnLen = 0;
              }
              psessionEntry->bcnLen = WDA_GET_RX_PAYLOAD_LEN(pRxPacketInfo);
              psessionEntry->beacon = vos_mem_malloc(psessionEntry->bcnLen);

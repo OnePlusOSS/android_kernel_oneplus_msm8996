@@ -61,7 +61,8 @@
 typedef struct tagOemDataReq
 {
     tANI_U8   sessionId;
-    tANI_U8   oemDataReq[OEM_DATA_REQ_SIZE];
+    uint8_t   data_len;
+    uint8_t   *data;
 } tOemDataReq, tOemDataReqConfig;
 
 /*************************************************************************************************************

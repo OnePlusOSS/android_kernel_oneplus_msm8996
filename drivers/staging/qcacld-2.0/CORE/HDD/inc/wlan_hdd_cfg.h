@@ -1094,8 +1094,13 @@ enum
 #define CFG_ROAM_RESCAN_RSSI_DIFF_MAX                   (100)
 #define CFG_ROAM_RESCAN_RSSI_DIFF_DEFAULT               (5)
 
+/*
+ * This parameter is the continuous packets dropping threshold that will trigger
+ * kickout peer event from fw.
+ * MIN value will disable the kickout feature.
+ */
 #define CFG_DROPPED_PKT_DISCONNECT_TH_NAME      "gDroppedPktDisconnectTh"
-#define CFG_DROPPED_PKT_DISCONNECT_TH_MIN       (48)
+#define CFG_DROPPED_PKT_DISCONNECT_TH_MIN       (0)
 #define CFG_DROPPED_PKT_DISCONNECT_TH_MAX       (1024)
 #define CFG_DROPPED_PKT_DISCONNECT_TH_DEFAULT   (512)
 
@@ -2648,12 +2653,12 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_SET_TXPOWER_LIMIT2G_NAME               "TxPower2g"
 #define CFG_SET_TXPOWER_LIMIT2G_MIN                ( 0 )
 #define CFG_SET_TXPOWER_LIMIT2G_MAX                ( 30 )
-#define CFG_SET_TXPOWER_LIMIT2G_DEFAULT            ( 15 )
+#define CFG_SET_TXPOWER_LIMIT2G_DEFAULT            ( 30 )
 
 #define CFG_SET_TXPOWER_LIMIT5G_NAME               "TxPower5g"
 #define CFG_SET_TXPOWER_LIMIT5G_MIN                ( 0 )
 #define CFG_SET_TXPOWER_LIMIT5G_MAX                ( 30 )
-#define CFG_SET_TXPOWER_LIMIT5G_DEFAULT            ( 15 )
+#define CFG_SET_TXPOWER_LIMIT5G_DEFAULT            ( 30 )
 
 #ifdef QCA_LL_TX_FLOW_CT
 /* Default, single interface case flow control parameters */
@@ -2869,6 +2874,7 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_IPA_UC_OFFLOAD_ENABLED_MAX             ( 1 )
 #define CFG_IPA_UC_OFFLOAD_ENABLED_DEFAULT         ( 0 )
 
+/* IpaUcTxBufCount should be power of 2 */
 #define CFG_IPA_UC_TX_BUF_COUNT_NAME               "IpaUcTxBufCount"
 #define CFG_IPA_UC_TX_BUF_COUNT_MIN                ( 0 )
 #define CFG_IPA_UC_TX_BUF_COUNT_MAX                ( 2048 )
@@ -2879,6 +2885,7 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_IPA_UC_TX_BUF_SIZE_MAX                ( 4096 )
 #define CFG_IPA_UC_TX_BUF_SIZE_DEFAULT            ( 2048 )
 
+/* IpaUcRxIndRingCount should be power of 2 */
 #define CFG_IPA_UC_RX_IND_RING_COUNT_NAME          "IpaUcRxIndRingCount"
 #define CFG_IPA_UC_RX_IND_RING_COUNT_MIN           ( 0 )
 #define CFG_IPA_UC_RX_IND_RING_COUNT_MAX           ( 2048 )
@@ -2909,9 +2916,15 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_WLAN_LOGGING_NUM_BUF_DEFAULT            ( 256 )
 #endif /* WLAN_LOGGING_SOCK_SVC_ENABLE */
 
+/*
+ * Sifs burst feature configuration
+ * gEnableSifsBurst = 0 means sifs burst toally disable
+ * gEnableSifsBurst = 1 means sifs burst enabled but disabled for legacy mode
+ * gEnableSifsBurst = 3 means sifs burst enabled and also for legacy mode
+ */
 #define CFG_ENABLE_SIFS_BURST                      "gEnableSifsBurst"
 #define CFG_ENABLE_SIFS_BURST_MIN                  ( 0 )
-#define CFG_ENABLE_SIFS_BURST_MAX                  ( 1 )
+#define CFG_ENABLE_SIFS_BURST_MAX                  (3)
 #define CFG_ENABLE_SIFS_BURST_DEFAULT              ( 0 )
 
 #ifdef WLAN_FEATURE_LPSS
@@ -3383,6 +3396,22 @@ enum dot11p_mode {
 #define CFG_FIRST_SCAN_BUCKET_THRESHOLD_MIN       (-50)
 #define CFG_FIRST_SCAN_BUCKET_THRESHOLD_MAX       (-30)
 #define CFG_FIRST_SCAN_BUCKET_THRESHOLD_DEFAULT   (-30)
+
+/*
+ * sap tx leakage threshold
+ * customer can set this value from 100 to 1000 which means
+ * sap tx leakage threshold is -10db to -100db
+ */
+#define CFG_SAP_TX_LEAKAGE_THRESHOLD_NAME    "gsap_tx_leakage_threshold"
+#define CFG_SAP_TX_LEAKAGE_THRESHOLD_MIN     (100)
+#define CFG_SAP_TX_LEAKAGE_THRESHOLD_MAX     (1000)
+#define CFG_SAP_TX_LEAKAGE_THRESHOLD_DEFAULT (310)
+
+#define CFG_TGT_GTX_USR_CFG_NAME      "tgt_gtx_usr_cfg"
+#define CFG_TGT_GTX_USR_CFG_MIN       (0)
+#define CFG_TGT_GTX_USR_CFG_MAX       (32)
+#define CFG_TGT_GTX_USR_CFG_DEFAULT   (32)
+
 
 /*---------------------------------------------------------------------------
   Type declarations
@@ -3968,7 +3997,7 @@ typedef struct
    v_U32_t                     wlanLoggingNumBuf;
 #endif /* WLAN_LOGGING_SOCK_SVC_ENABLE */
 
-   v_BOOL_t                    enableSifsBurst;
+   v_U8_t                      enableSifsBurst;
 
 #ifdef WLAN_FEATURE_LPSS
    v_BOOL_t                    enablelpasssupport;
@@ -4080,6 +4109,9 @@ typedef struct
    uint16_t                    max_mgmt_tx_fail_count;
    int8_t                      first_scan_bucket_threshold;
    uint8_t                     ht_mpdu_density;
+   uint16_t                    sap_tx_leakage_threshold;
+   /* parameter to control GTX */
+   uint32_t                    tgt_gtx_usr_cfg;
 } hdd_config_t;
 
 #ifdef WLAN_FEATURE_MBSSID

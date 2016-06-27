@@ -1230,3 +1230,19 @@ v_U8_t vos_chan_to_band(v_U32_t chan)
 
     return VOS_BAND_5GHZ;
 }
+
+/**
+ * vos_rounddown_pow_of_two() - Round down to nearest power of two
+ * @n: number to be tested
+ *
+ * Test if the input number is power of two, and return the nearest power of two
+ *
+ * Return: number rounded down to the nearest power of two
+ */
+unsigned long vos_rounddown_pow_of_two(unsigned long n)
+{
+	if (is_power_of_2(n))
+		return n; /* already a power of 2 */
+
+	return __rounddown_pow_of_two(n);
+}

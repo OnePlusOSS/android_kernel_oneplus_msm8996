@@ -3970,3 +3970,31 @@ wlansap_get_phymode(v_PVOID_t pctx)
 	}
 	return psapctx->csrRoamProfile.phyMode;
 }
+
+/**
+ * wlansap_set_tx_leakage_threshold() - set sap tx leakage threshold.
+ * @hal: HAL pointer
+ * @tx_leakage_threshold: sap tx leakage threshold
+ *
+ * This function set sap tx leakage threshold.
+ *
+ * Return: VOS_STATUS.
+ */
+VOS_STATUS wlansap_set_tx_leakage_threshold(tHalHandle hal,
+			uint16 tx_leakage_threshold)
+{
+	tpAniSirGlobal mac;
+
+	if (NULL == hal) {
+		VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
+			"%s: Invalid hal pointer", __func__);
+		return VOS_STATUS_E_FAULT;
+	}
+
+	mac = PMAC_STRUCT(hal);
+	mac->sap.SapDfsInfo.tx_leakage_threshold = tx_leakage_threshold;
+	VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO,
+			"%s: leakage_threshold %d", __func__,
+			mac->sap.SapDfsInfo.tx_leakage_threshold);
+	return VOS_STATUS_SUCCESS;
+}

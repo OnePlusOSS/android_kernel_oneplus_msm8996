@@ -747,7 +747,7 @@ PopulateDot11fHTCaps(tpAniSirGlobal           pMac,
     }
 
     /* If STA and mimo power save is enabled include ht smps */
-    if (psessionEntry && (!pMac->lteCoexAntShare) &&
+    if (psessionEntry &&
         LIM_IS_STA_ROLE(psessionEntry) &&
         (psessionEntry->enableHtSmps) &&
         (!psessionEntry->supported_nss_1x1)) {
@@ -1203,18 +1203,18 @@ PopulateDot11fExtCap(tpAniSirGlobal   pMac,
        return eSIR_FAILURE;
     }
 
-    if (val)   // If set to true then set RTTv3
+    if (val)
     {
         if (!psessionEntry || LIM_IS_STA_ROLE(psessionEntry)) {
             p_ext_cap->fine_time_meas_initiator =
-              (pMac->fine_time_meas_cap & FINE_TIME_MEAS_STA_INITIATOR) ? 1 : 0;
+              (pMac->fine_time_meas_cap & WMI_FW_STA_RTT_INITR) ? 1 : 0;
             p_ext_cap->fine_time_meas_responder =
-              (pMac->fine_time_meas_cap & FINE_TIME_MEAS_STA_RESPONDER) ? 1 : 0;
+              (pMac->fine_time_meas_cap & WMI_FW_STA_RTT_RESPR) ? 1 : 0;
         } else if (LIM_IS_AP_ROLE(psessionEntry)) {
             p_ext_cap->fine_time_meas_initiator =
-              (pMac->fine_time_meas_cap & FINE_TIME_MEAS_SAP_INITIATOR) ? 1 : 0;
+              (pMac->fine_time_meas_cap & WMI_FW_AP_RTT_INITR) ? 1 : 0;
             p_ext_cap->fine_time_meas_responder =
-              (pMac->fine_time_meas_cap & FINE_TIME_MEAS_SAP_RESPONDER) ? 1 : 0;
+              (pMac->fine_time_meas_cap & WMI_FW_AP_RTT_RESPR) ? 1 : 0;
         }
     }
 
@@ -1721,7 +1721,8 @@ PopulateDot11fSuppRates(tpAniSirGlobal      pMac,
 tSirRetStatus
 populate_dot11f_rates_tdls(tpAniSirGlobal p_mac,
 			   tDot11fIESuppRates *p_supp_rates,
-			   tDot11fIEExtSuppRates *p_ext_supp_rates)
+			   tDot11fIEExtSuppRates *p_ext_supp_rates,
+			   uint8_t curr_oper_channel)
 {
 	tSirMacRateSet temp_rateset;
 	tSirMacRateSet temp_rateset2;
@@ -1731,15 +1732,23 @@ populate_dot11f_rates_tdls(tpAniSirGlobal p_mac,
 	wlan_cfgGetInt(p_mac, WNI_CFG_DOT11_MODE, &self_dot11mode);
 
 	/**
-         * Include 11b rates only when the device configured in
-	 * auto, 11a/b/g or 11b_only
-         */
-	if ((self_dot11mode == WNI_CFG_DOT11_MODE_ALL) ||
+	 * Include 11b rates only when the device configured in
+	 * auto, 11a/b/g or 11b_only and also if current base
+	 * channel is 5 GHz then no need to advertise the 11b rates.
+	 * If devices move to 2.4GHz off-channel then they can communicate
+	 * in 11g rates i.e. (6, 9, 12, 18, 24, 36 and 54).
+	 */
+	limLog(p_mac, LOG1,
+		FL("Current operating channel %d self_dot11mode = %d"),
+		curr_oper_channel, self_dot11mode);
+
+	if ((curr_oper_channel <= SIR_11B_CHANNEL_END) &&
+	    ((self_dot11mode == WNI_CFG_DOT11_MODE_ALL) ||
 	    (self_dot11mode == WNI_CFG_DOT11_MODE_11A) ||
 	    (self_dot11mode == WNI_CFG_DOT11_MODE_11AC) ||
 	    (self_dot11mode == WNI_CFG_DOT11_MODE_11N) ||
 	    (self_dot11mode == WNI_CFG_DOT11_MODE_11G) ||
-	    (self_dot11mode == WNI_CFG_DOT11_MODE_11B) ) {
+	    (self_dot11mode == WNI_CFG_DOT11_MODE_11B))) {
 		val = WNI_CFG_SUPPORTED_RATES_11B_LEN;
 		wlan_cfgGetStr(p_mac, WNI_CFG_SUPPORTED_RATES_11B,
 				(tANI_U8 *)&temp_rateset.rate, &val);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -45,6 +45,9 @@
 /* In pronto case, IBSS owns the first peer for bss peer.
    In Rome case, IBSS uses the 2nd peer as bss peer */
 #define IBSS_BROADCAST_STAID 1
+
+/* Timeout in ms for peer info request completion */
+#define IBSS_PEER_INFO_REQ_TIMOEUT 1000
 
 typedef enum
 {
@@ -150,8 +153,10 @@ int hdd_SetGENIEToCsr( hdd_adapter_t *pAdapter, eCsrAuthType *RSNAuthType );
 int hdd_set_csr_auth_type( hdd_adapter_t *pAdapter, eCsrAuthType RSNAuthType );
 VOS_STATUS hdd_roamRegisterTDLSSTA(hdd_adapter_t *pAdapter,
                                    const tANI_U8 *peerMac, tANI_U16 staId,
-                                   tANI_U8 ucastSig);
+                                   tANI_U8 ucastSig, uint8_t qos);
 void hdd_PerformRoamSetKeyComplete(hdd_adapter_t *pAdapter);
+
+VOS_STATUS hdd_roamDeregisterTDLSSTA(hdd_adapter_t *adapter, uint8_t staId);
 
 void hdd_SendPeerStatusIndToOemApp(v_MACADDR_t *peerMac,
                                    tANI_U8 peerStatus,

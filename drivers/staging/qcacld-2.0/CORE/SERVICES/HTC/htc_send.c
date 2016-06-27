@@ -674,21 +674,12 @@ static A_STATUS HTCIssuePackets(HTC_TARGET       *target,
         }
     }
 
-    if (adf_os_unlikely(A_FAILED(status))) {
-        while (!HTC_QUEUE_EMPTY(pPktQueue)) {
-            if (status != A_NO_RESOURCE) {
-                AR_DEBUG_PRINTF(ATH_DEBUG_ERR, ("HTCIssuePackets, failed pkt:0x%p status:%d \n",pPacket,status));
-            }
-            pPacket = HTC_PACKET_DEQUEUE(pPktQueue);
-            if (pPacket) {
-               pPacket->Status = status;
-               hif_pm_runtime_put(target->hif_dev);
-               SendPacketCompletion(target,pPacket);
-            }
-        }
-    }
+    if (adf_os_unlikely(A_FAILED(status)))
+        AR_DEBUG_PRINTF(ATH_DEBUG_ERR,
+            ("htc_issue_packets, failed pkt:0x%p status:%d",
+            pPacket, status));
 
-    AR_DEBUG_PRINTF(ATH_DEBUG_SEND, ("-HTCIssuePackets \n"));
+    AR_DEBUG_PRINTF(ATH_DEBUG_SEND, ("-HTCIssuePackets\n"));
 
     return status;
 }
@@ -1133,7 +1124,16 @@ static HTC_SEND_QUEUE_RESULT HTCTrySend(HTC_TARGET       *target,
         UNLOCK_HTC_TX(target);
 
             /* send what we can */
-        HTCIssuePackets(target,pEndpoint,&sendQueue);
+        result = HTCIssuePackets(target, pEndpoint, &sendQueue);
+        if (result) {
+            AR_DEBUG_PRINTF(ATH_DEBUG_ERR,
+               ("htc_issue_packets, failed status:%d put it back to head of callers SendQueue",
+               result));
+            HTC_PACKET_QUEUE_TRANSFER_TO_HEAD(&pEndpoint->TxQueue,
+                             &sendQueue);
+            LOCK_HTC_TX(target);
+            break;
+        }
 
         if (!IS_TX_CREDIT_FLOW_ENABLED(pEndpoint)) {
             tx_resources = HIFGetFreeQueueNumber(target->hif_dev,pEndpoint->UL_PipeID);

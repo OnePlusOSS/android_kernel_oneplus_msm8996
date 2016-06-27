@@ -182,4 +182,6 @@ v_U8_t vos_get_mmie_size(void);
 #endif /* WLAN_FEATURE_11W */
 
 eHalStatus vos_send_flush_logs_cmd_to_fw(tpAniSirGlobal pMac);
+unsigned long vos_rounddown_pow_of_two(unsigned long n);
+
 #endif // #if !defined __VOSS_UTILS_H

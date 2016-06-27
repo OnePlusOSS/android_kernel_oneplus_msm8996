@@ -1466,6 +1466,7 @@ enum qca_wlan_vendor_config {
 	QCA_WLAN_VENDOR_ATTR_CONFIG_MODULATED_DTIM,
 	QCA_WLAN_VENDOR_ATTR_CONFIG_STATS_AVG_FACTOR,
 	QCA_WLAN_VENDOR_ATTR_CONFIG_GUARD_TIME,
+	QCA_WLAN_VENDOR_ATTR_CONFIG_FINE_TIME_MEASUREMENT,
 	/* keep last */
 	QCA_WLAN_VENDOR_ATTR_CONFIG_LAST,
 	QCA_WLAN_VENDOR_ATTR_CONFIG_MAX =
@@ -1738,4 +1739,22 @@ backported_cfg80211_vendor_event_alloc(struct wiphy *wiphy,
 #define cfg80211_vendor_event_alloc backported_cfg80211_vendor_event_alloc
 #endif
 
+#if defined(CFG80211_DISCONNECTED_V2) || \
+(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0))
+static inline void wlan_hdd_cfg80211_indicate_disconnect(struct net_device *dev,
+							bool from_ap,
+							int reason)
+{
+	cfg80211_disconnected(dev, reason, NULL, 0,
+				from_ap, GFP_KERNEL);
+}
+#else
+static inline void wlan_hdd_cfg80211_indicate_disconnect(struct net_device *dev,
+							bool from_ap,
+							int reason)
+{
+	cfg80211_disconnected(dev, reason, NULL, 0,
+				GFP_KERNEL);
+}
+#endif
 #endif

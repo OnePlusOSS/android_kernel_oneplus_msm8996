@@ -92,6 +92,8 @@
 #include "wlan_logging_sock_svc.h"
 #include "wma.h"
 
+#include "vos_utils.h"
+
 /*---------------------------------------------------------------------------
  * Preprocessor Definitions and Constants
  * ------------------------------------------------------------------------*/
@@ -496,8 +498,42 @@ VOS_STATUS vos_open( v_CONTEXT_t *pVosContext, v_SIZE_t hddContextSize )
 #ifdef IPA_UC_OFFLOAD
     /* IPA micro controller data path offload resource config item */
     macOpenParms.ucOffloadEnabled = pHddCtx->cfg_ini->IpaUcOffloadEnabled;
+
+    if (!is_power_of_2(pHddCtx->cfg_ini->IpaUcTxBufCount)) {
+        /* IpaUcTxBufCount should be power of 2 */
+        VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+                    "%s: Round down IpaUcTxBufCount %d to nearest power of two",
+                    __func__, pHddCtx->cfg_ini->IpaUcTxBufCount);
+        pHddCtx->cfg_ini->IpaUcTxBufCount =
+                    vos_rounddown_pow_of_two(pHddCtx->cfg_ini->IpaUcTxBufCount);
+        if (!pHddCtx->cfg_ini->IpaUcTxBufCount) {
+            VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_FATAL,
+                        "%s: Failed to round down IpaUcTxBufCount", __func__);
+            goto err_htc_close;
+        }
+        VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+                    "%s: IpaUcTxBufCount rounded down to %d", __func__,
+                    pHddCtx->cfg_ini->IpaUcTxBufCount);
+    }
     macOpenParms.ucTxBufCount = pHddCtx->cfg_ini->IpaUcTxBufCount;
     macOpenParms.ucTxBufSize = pHddCtx->cfg_ini->IpaUcTxBufSize;
+
+    if (!is_power_of_2(pHddCtx->cfg_ini->IpaUcRxIndRingCount)) {
+        /* IpaUcRxIndRingCount should be power of 2 */
+        VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+                "%s: Round down IpaUcRxIndRingCount %d to nearest power of two",
+                __func__, pHddCtx->cfg_ini->IpaUcRxIndRingCount);
+        pHddCtx->cfg_ini->IpaUcRxIndRingCount =
+                vos_rounddown_pow_of_two(pHddCtx->cfg_ini->IpaUcRxIndRingCount);
+        if (!pHddCtx->cfg_ini->IpaUcRxIndRingCount) {
+            VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_FATAL,
+                      "%s: Failed to round down IpaUcRxIndRingCount", __func__);
+            goto err_htc_close;
+        }
+        VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+                    "%s: IpaUcRxIndRingCount rounded down to %d", __func__,
+                    pHddCtx->cfg_ini->IpaUcRxIndRingCount);
+    }
     macOpenParms.ucRxIndRingCount = pHddCtx->cfg_ini->IpaUcRxIndRingCount;
     macOpenParms.ucTxPartitionBase = pHddCtx->cfg_ini->IpaUcTxPartitionBase;
 #endif /* IPA_UC_OFFLOAD */
@@ -1702,45 +1738,22 @@ VOS_STATUS vos_free_context( v_VOID_t *pVosContext, VOS_MODULE_ID moduleID,
 
 } /* vos_free_context() */
 
-
-/**---------------------------------------------------------------------------
-
-  \brief vos_mq_post_message() - post a message to a message queue
-
-  This API allows messages to be posted to a specific message queue.  Messages
-  can be posted to the following message queues:
-
-  <ul>
-    <li> SME
-    <li> PE
-    <li> HAL
-    <li> TL
-  </ul>
-
-  \param msgQueueId - identifies the message queue upon which the message
-         will be posted.
-
-  \param message - a pointer to a message buffer.  Memory for this message
-         buffer is allocated by the caller and free'd by the vOSS after the
-         message is posted to the message queue.  If the consumer of the
-         message needs anything in this message, it needs to copy the contents
-         before returning from the message queue handler.
-
-  \return VOS_STATUS_SUCCESS - the message has been successfully posted
-          to the message queue.
-
-          VOS_STATUS_E_INVAL - The value specified by msgQueueId does not
-          refer to a valid Message Queue Id.
-
-          VOS_STATUS_E_FAULT  - message is an invalid pointer.
-
-          VOS_STATUS_E_FAILURE - the message queue handler has reported
-          an unknown failure.
-
-  \sa
-
-  --------------------------------------------------------------------------*/
-VOS_STATUS vos_mq_post_message( VOS_MQ_ID msgQueueId, vos_msg_t *pMsg )
+/**
+ * vos_mq_post_message_by_priority() - posts message using priority
+ * to message queue
+ * @msgQueueId: message queue id
+ * @pMsg: message to be posted
+ * @is_high_priority: wheather message is high priority
+ *
+ * This function is used to post high priority message to message queue
+ *
+ * Return: VOS_STATUS_SUCCESS on success
+ *         VOS_STATUS_E_FAILURE on failure
+ *         VOS_STATUS_E_RESOURCES on resource allocation failure
+ */
+VOS_STATUS vos_mq_post_message_by_priority(VOS_MQ_ID msgQueueId,
+					   vos_msg_t *pMsg,
+					   int is_high_priority)
 {
   pVosMqType      pTargetMq   = NULL;
   pVosMsgWrapper  pMsgWrapper = NULL;
@@ -1835,14 +1848,17 @@ VOS_STATUS vos_mq_post_message( VOS_MQ_ID msgQueueId, vos_msg_t *pMsg )
   vos_mem_copy( (v_VOID_t*)pMsgWrapper->pVosMsg,
                 (v_VOID_t*)pMsg, sizeof(vos_msg_t));
 
-  vos_mq_put(pTargetMq, pMsgWrapper);
+  if (is_high_priority)
+      vos_mq_put_front(pTargetMq, pMsgWrapper);
+  else
+      vos_mq_put(pTargetMq, pMsgWrapper);
 
   set_bit(MC_POST_EVENT_MASK, &gpVosContext->vosSched.mcEventFlag);
   wake_up_interruptible(&gpVosContext->vosSched.mcWaitQueue);
 
   return VOS_STATUS_SUCCESS;
 
-} /* vos_mq_post_message()*/
+}
 
 
 /**---------------------------------------------------------------------------

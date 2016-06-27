@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2015 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -240,7 +240,7 @@ limSendProbeReqMgmtFrame(tpAniSirGlobal pMac,
 {
     tDot11fProbeRequest pr;
     tANI_U32            nStatus, nBytes, nPayload;
-    tSirRetStatus       nSirStatus, extcap_status;
+    tSirRetStatus       nSirStatus;
     tANI_U8            *pFrame;
     void               *pPacket;
     eHalStatus          halstatus;
@@ -251,6 +251,8 @@ limSendProbeReqMgmtFrame(tpAniSirGlobal pMac,
     tANI_U8             smeSessionId = 0;
     bool                isVHTEnabled = false;
     uint16_t addn_ielen = nAdditionalIELen;
+    bool                extracted_ext_cap_flag = false;
+    tDot11fIEExtCap     extracted_ext_cap;
 
 
 
@@ -395,14 +397,24 @@ limSendProbeReqMgmtFrame(tpAniSirGlobal pMac,
                                "0x%08x)."), nStatus );
     }
 
-    /* Strip extended capability IE (if present). FW will add that IE */
     if (addn_ielen) {
-        extcap_status = lim_strip_extcap_ie(pMac, pAdditionalIE, &addn_ielen,
-                                            NULL);
-        if (eSIR_SUCCESS != extcap_status)
-            limLog(pMac, LOGE,
-                   FL("Error:(%d) stripping extcap IE"), extcap_status);
 
+        vos_mem_set((tANI_U8 *)&extracted_ext_cap,
+                     sizeof(tDot11fIEExtCap), 0);
+        nSirStatus = lim_strip_extcap_update_struct(pMac, pAdditionalIE,
+                                      &addn_ielen,
+                                      &extracted_ext_cap);
+        if (eSIR_SUCCESS != nSirStatus) {
+            limLog(pMac, LOG1,
+                 FL("Unable to Stripoff ExtCap IE from Probe Req"));
+        } else {
+            struct s_ext_cap *p_ext_cap = (struct s_ext_cap *)
+                                          extracted_ext_cap.bytes;
+            if (p_ext_cap->interworkingService)
+                p_ext_cap->qosMap = 1;
+
+            extracted_ext_cap_flag = lim_is_ext_cap_ie_present(p_ext_cap);
+        }
     }
 
     nBytes = nPayload + sizeof( tSirMacMgmtHdr ) + addn_ielen;
@@ -433,6 +445,10 @@ limSendProbeReqMgmtFrame(tpAniSirGlobal pMac,
                     ( void* ) pFrame, ( void* ) pPacket );
         return nSirStatus;      // allocated!
     }
+
+    /* merge the ExtCap struct*/
+    if (extracted_ext_cap_flag)
+        lim_merge_extcap_struct(&pr.ExtCap, &extracted_ext_cap);
 
     // That done, pack the Probe Request:
     nStatus = dot11fPackProbeRequest( pMac, &pr, pFrame +
@@ -579,7 +595,7 @@ limSendProbeRspMgmtFrame(tpAniSirGlobal pMac,
     tANI_U8              smeSessionId = 0;
     tANI_BOOLEAN         isVHTEnabled = eANI_BOOLEAN_FALSE;
     tDot11fIEExtCap      extractedExtCap;
-    tANI_BOOLEAN         extractedExtCapFlag = eANI_BOOLEAN_TRUE;
+    tANI_BOOLEAN         extractedExtCapFlag = eANI_BOOLEAN_FALSE;
 
     if (ANI_DRIVER_TYPE(pMac) == eDRIVER_TYPE_MFG) {
         /* We don't answer requests in this case */
@@ -787,9 +803,10 @@ limSendProbeRspMgmtFrame(tpAniSirGlobal pMac,
                                   &extractedExtCap );
         if(eSIR_SUCCESS != nSirStatus )
         {
-            extractedExtCapFlag = eANI_BOOLEAN_FALSE;
             limLog(pMac, LOG1,
                 FL("Unable to Stripoff ExtCap IE from Probe Rsp"));
+        } else {
+            extractedExtCapFlag = eANI_BOOLEAN_TRUE;
         }
 
         nBytes = nBytes + totalAddnIeLen;
@@ -2052,20 +2069,9 @@ limSendAssocReqMgmtFrame(tpAniSirGlobal   pMac,
         {
             struct s_ext_cap *p_ext_cap = (struct s_ext_cap *)
                                           extractedExtCap.bytes;
-            if (p_ext_cap->interworkingService ||
-                            p_ext_cap->bssTransition)
+            if (p_ext_cap->interworkingService)
                 p_ext_cap->qosMap = 1;
-            else {
-                /* No need to merge the EXT Cap from Supplicant
-                 * if interworkingService or bsstransition is not set,
-                 * as currently driver is only interested in
-                 * interworkingService and bsstransition capability from
-                 * supplicant.
-                 * if in future any other EXT Cap info is required from
-                 * supplicant it needs to be handled here.
-                 */
-                 extractedExtCapFlag = eANI_BOOLEAN_FALSE;
-            }
+            extractedExtCapFlag = lim_is_ext_cap_ie_present(p_ext_cap);
         }
     } else {
         limLog(pMac, LOG1, FL("No additional IE for Assoc Request"));
@@ -2133,7 +2139,8 @@ limSendAssocReqMgmtFrame(tpAniSirGlobal   pMac,
             &pFrm->ExtSuppRates, psessionEntry );
 
 #if defined WLAN_FEATURE_VOWIFI
-    if (pMac->rrm.rrmPEContext.rrmEnable)
+    if (pMac->rrm.rrmPEContext.rrmEnable &&
+            SIR_MAC_GET_RRM(psessionEntry->limCurrentBssCaps))
         PopulateDot11fRRMIe(pMac, &pFrm->RRMEnabledCap, psessionEntry);
 #endif
     // The join request *should* contain zero or one of the WPA and RSN
@@ -2533,7 +2540,8 @@ limSendReassocReqWithFTIEsMgmtFrame(tpAniSirGlobal     pMac,
             &frm.ExtSuppRates, psessionEntry );
 
 #if defined WLAN_FEATURE_VOWIFI
-    if (pMac->rrm.rrmPEContext.rrmEnable)
+    if (pMac->rrm.rrmPEContext.rrmEnable &&
+            SIR_MAC_GET_RRM(psessionEntry->limCurrentBssCaps))
         PopulateDot11fRRMIe(pMac, &frm.RRMEnabledCap, psessionEntry);
 #endif
 
@@ -3037,7 +3045,8 @@ limSendReassocReqMgmtFrame(tpAniSirGlobal     pMac,
                                 &frm.ExtSuppRates, psessionEntry );
 
 #if defined WLAN_FEATURE_VOWIFI
-    if (pMac->rrm.rrmPEContext.rrmEnable)
+    if (pMac->rrm.rrmPEContext.rrmEnable &&
+            SIR_MAC_GET_RRM(psessionEntry->limCurrentBssCaps))
         PopulateDot11fRRMIe(pMac, &frm.RRMEnabledCap, psessionEntry);
 #endif
     // The join request *should* contain zero or one of the WPA and RSN

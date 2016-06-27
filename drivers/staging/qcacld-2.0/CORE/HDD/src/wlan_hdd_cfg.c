@@ -4194,6 +4194,21 @@ REG_TABLE_ENTRY g_registry_table[] =
                 CFG_FIRST_SCAN_BUCKET_THRESHOLD_DEFAULT,
                 CFG_FIRST_SCAN_BUCKET_THRESHOLD_MIN,
                 CFG_FIRST_SCAN_BUCKET_THRESHOLD_MAX),
+
+   REG_VARIABLE(CFG_SAP_TX_LEAKAGE_THRESHOLD_NAME,
+                WLAN_PARAM_Integer,
+                hdd_config_t, sap_tx_leakage_threshold,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_SAP_TX_LEAKAGE_THRESHOLD_DEFAULT,
+                CFG_SAP_TX_LEAKAGE_THRESHOLD_MIN,
+                CFG_SAP_TX_LEAKAGE_THRESHOLD_MAX),
+
+   REG_VARIABLE(CFG_TGT_GTX_USR_CFG_NAME, WLAN_PARAM_Integer,
+                hdd_config_t, tgt_gtx_usr_cfg,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_TGT_GTX_USR_CFG_DEFAULT,
+                CFG_TGT_GTX_USR_CFG_MIN,
+                CFG_TGT_GTX_USR_CFG_MAX),
 };
 
 #ifdef WLAN_FEATURE_MBSSID
@@ -4879,6 +4894,9 @@ void print_hdd_cfg(hdd_context_t *pHddCtx)
   hddLog(LOG2, "Name = [gIdleTimeConc] Value = [%u]",
                    pHddCtx->cfg_ini->idle_time_conc);
 
+  hddLog(LOG2, "Name = [%s] Value = [%u]",
+                 CFG_TGT_GTX_USR_CFG_NAME,
+                 pHddCtx->cfg_ini->tgt_gtx_usr_cfg);
 }
 
 #define CFG_VALUE_MAX_LEN 256
@@ -5720,7 +5738,7 @@ VOS_STATUS hdd_hex_string_to_u16_array(char *str,
 		uint16_t *int_array, uint8_t *len, uint8_t int_array_max_len)
 {
 	char *s = str;
-	int val = 0;
+	uint32_t val = 0;
 	if (str == NULL || int_array == NULL || len == NULL)
 		return VOS_STATUS_E_INVAL;
 
@@ -6433,6 +6451,15 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
       fStatus = FALSE;
       hddLog(LOGE, "Could not pass on WNI_CFG_IBSS_ATIM_WIN_SIZE to CCM");
    }
+
+   if (ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_TGT_GTX_USR_CFG,
+                    pConfig->tgt_gtx_usr_cfg, NULL,
+                    eANI_BOOLEAN_FALSE) == eHAL_STATUS_FAILURE)
+   {
+      fStatus = FALSE;
+      hddLog(LOGE, "Could not pass on WNI_CFG_TGT_GTX_USR_CFG to CCM");
+   }
+
    return fStatus;
 }
 

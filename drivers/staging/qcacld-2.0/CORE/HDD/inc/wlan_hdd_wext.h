@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2015 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -144,12 +144,6 @@ typedef enum
    HDD_WLAN_WMM_TS_INFO_ACK_POLICY_NORMAL_ACK      = 0,
    HDD_WLAN_WMM_TS_INFO_ACK_POLICY_HT_IMMEDIATE_BLOCK_ACK    = 1,
 } hdd_wlan_wmm_ts_info_ack_policy_e;
-
-/** vendor element ID */
-#define IE_EID_VENDOR        ( 221 ) /* 0xDD */
-#define IE_LEN_SIZE          1
-#define IE_EID_SIZE          1
-#define IE_VENDOR_OUI_SIZE   4
 
 /** Maximum Length of WPA/RSN IE */
 #define MAX_WPA_RSN_IE_LEN 40
@@ -340,6 +334,8 @@ typedef struct hdd_wext_state_s
    v_BOOL_t isESEConnection;
    eCsrAuthType collectedAuthType; /* Collected from ALL SIOCSIWAUTH Ioctls. Will be negotiatedAuthType - in tCsrProfile */
 #endif
+   /* Wireless statistics */
+   struct iw_statistics iw_stats;
 }hdd_wext_state_t;
 
 typedef struct ccp_freq_chan_map_s{
@@ -369,7 +365,7 @@ extern int hdd_wlan_get_frag_threshold(hdd_adapter_t *pAdapter,
 extern void hdd_wlan_get_version(hdd_adapter_t *pAdapter,
                                  union iwreq_data *wrqu, char *extra);
 
-extern void hdd_wlan_get_stats(hdd_adapter_t *pAdapter, v_U16_t *length,
+extern int hdd_wlan_get_stats(hdd_adapter_t *pAdapter, v_U16_t *length,
                                char *buffer, v_U16_t buf_len);
 
 extern void hdd_wlan_dump_stats(hdd_adapter_t *pAdapter, int value);

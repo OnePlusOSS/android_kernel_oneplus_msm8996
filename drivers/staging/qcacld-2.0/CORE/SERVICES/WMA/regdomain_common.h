@@ -260,6 +260,7 @@ enum EnumRd {
     APL10       = 0x1050,   /* Korea. After 11/2007. For STAs only */
     APL11       = 0x1150,   /* Specific AP Customer 5GHz, For APs Only */
     APL12       = 0x1160,   /* Kenya */
+    APL13       = 0x1170,   /* Algeria */
 
     ETSI1       = 0x0130,   /* Europe & others */
     ETSI2       = 0x0230,   /* Europe & others */
@@ -372,6 +373,7 @@ static const REG_DMN_PAIR_MAPPING ahCmnRegDomainPairs[] = {
 	{APL3_WORLD,	APL3,		WORLD,		NO_REQ, NO_REQ, PSCAN_DEFER, 0 },
 	{APL4_WORLD,	APL4,		WORLD,		NO_REQ, NO_REQ, PSCAN_DEFER, 0 },
 	{APL5_WORLD,	APL5,		WORLD,		NO_REQ, NO_REQ, PSCAN_DEFER, 0 },
+	{APL13_WORLD,	APL13,		WORLD,		NO_REQ, NO_REQ, PSCAN_DEFER, 0 },
 	{APL6_WORLD,	APL6,		WORLD,		NO_REQ, NO_REQ, PSCAN_DEFER, 0 },
 	{APL7_FCCA,	    APL7,		FCCA,		NO_REQ, NO_REQ, PSCAN_DEFER, 0 },
 	{APL8_WORLD,	APL8,		WORLD,		NO_REQ, NO_REQ, PSCAN_DEFER, 0 },
@@ -481,8 +483,8 @@ static const REG_DMN_PAIR_MAPPING ahCmnRegDomainPairs[] = {
 static const COUNTRY_CODE_TO_ENUM_RD ahCmnAllCountries[] = {
     {CTRY_DEBUG,       NO_ENUMRD,     "DB", "DEBUG",          YES, YES, YES, YES, YES, YES, YES, YES, 7000 },
     {CTRY_DEFAULT,     DEF_REGDMN,    "NA", "NO_COUNTRY_SET", YES, YES, YES, YES, YES, YES, YES, YES, 7000 },
-    {CTRY_ALBANIA,     NULL1_WORLD,   "AL", "ALBANIA",        YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 },
-    {CTRY_ALGERIA,     NULL1_WORLD,   "DZ", "ALGERIA",        YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 },
+    {CTRY_ALBANIA,     ETSI1_WORLD,   "AL", "ALBANIA",        YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 },
+    {CTRY_ALGERIA,     APL13_WORLD,   "DZ", "ALGERIA",        YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 },
     {CTRY_ARGENTINA,   FCC3_WORLD,    "AR", "ARGENTINA",      YES,  NO,  NO, YES, YES, YES, YES, YES, 7000 },
     {CTRY_ARMENIA,     ETSI4_WORLD,   "AM", "ARMENIA",        YES,  NO, YES, YES, YES, YES,  NO, NO, 7000 },
     {CTRY_ARUBA,       ETSI1_WORLD,   "AW", "ARUBA",          YES,  NO, YES, YES, YES, YES, YES, YES, 7000 },
@@ -492,7 +494,7 @@ static const COUNTRY_CODE_TO_ENUM_RD ahCmnAllCountries[] = {
     {CTRY_AZERBAIJAN,  ETSI4_WORLD,   "AZ", "AZERBAIJAN",     YES, YES, YES, YES, YES, YES, YES, YES, 7000 },
     {CTRY_BAHAMAS,     FCC3_WORLD,    "BS", "BAHAMAS",        YES, YES, YES, YES, YES, YES, YES, YES, 7000 },
     {CTRY_BAHRAIN,     APL6_WORLD,    "BH", "BAHRAIN",        YES,  NO, YES, YES, YES, YES,  NO, NO, 7000 },
-    {CTRY_BANGLADESH,  NULL1_WORLD,   "BD", "BANGLADESH",     YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 },
+    {CTRY_BANGLADESH,  APL1_WORLD,    "BD", "BANGLADESH",     YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 },
     {CTRY_BARBADOS,    FCC2_WORLD,    "BB", "BARBADOS",       YES,  NO, YES, YES, YES, YES, YES, YES, 7000 },
     {CTRY_BELARUS,     ETSI1_WORLD,   "BY", "BELARUS",        YES,  NO, YES, YES, YES, YES, YES, YES, 7000 },
     {CTRY_BELGIUM,     ETSI1_WORLD,   "BE", "BELGIUM",        YES,  NO, YES, YES, YES, YES, YES, YES, 7000 },
@@ -671,7 +673,7 @@ static const COUNTRY_CODE_TO_ENUM_RD ahCmnAllCountries[] = {
     {CTRY_VENEZUELA,   FCC1_WORLD,    "VE", "VENEZUELA",      YES,  NO, YES, YES, YES, YES, YES, YES, 7000 },
     {CTRY_VIET_NAM,    ETSI3_WORLD,   "VN", "VIET NAM",       YES,  NO, YES, YES, YES, YES, YES, YES, 7000 },
     {CTRY_YEMEN,       NULL1_WORLD,   "YE", "YEMEN",          YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 },
-    {CTRY_ZIMBABWE,    NULL1_WORLD,   "ZW", "ZIMBABWE",       YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 }
+    {CTRY_ZIMBABWE,    ETSI1_WORLD,   "ZW", "ZIMBABWE",       YES,  NO, YES, YES, YES,  NO,  NO, NO, 7000 }
 };
 
 
@@ -1287,6 +1289,15 @@ static const REG_DOMAIN ahCmnRegDomains[] = {
 	},
 
 	{APL12, ETSI, DFS_ETSI, PSCAN_ETSI, DISALLOW_ADHOC_11A|DISALLOW_ADHOC_11A_TURB,
+		BM(F5_5180_5240, F1_5500_5560, F1_5745_5765, -1, -1, -1, -1, -1, -1, -1, -1, -1),
+		BM(T2_5760_5800, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1),
+		BM(T1_5765_5805, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1),
+		BMZERO,
+		BMZERO,
+		CHAN_TURBO_G_BMZERO
+	},
+
+	{APL13, ETSI, DFS_ETSI, PSCAN_ETSI, DISALLOW_ADHOC_11A|DISALLOW_ADHOC_11A_TURB,
 		BM(F5_5180_5240, F1_5500_5560, F1_5745_5765, -1, -1, -1, -1, -1, -1, -1, -1, -1),
 		BM(T2_5760_5800, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1),
 		BM(T1_5765_5805, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1),

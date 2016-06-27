@@ -656,10 +656,10 @@ limCleanupRxPath(tpAniSirGlobal pMac, tpDphHashNode pStaDs,tpPESession psessionE
              */
             if (LIM_IS_AP_ROLE(psessionEntry) ||
                 LIM_IS_BT_AMP_AP_ROLE(psessionEntry)) {
+                limDelSta(pMac, pStaDs, false, psessionEntry);
                 limReleasePeerIdx(pMac, pStaDs->assocId, psessionEntry);
             }
             limDeleteDphHashEntry(pMac, pStaDs->staAddr, pStaDs->assocId,psessionEntry);
-
             return retCode;
         }
     }
@@ -1660,7 +1660,8 @@ tSirRetStatus limPopulateVhtMcsSet(tpAniSirGlobal pMac,
                         pMac->roam.configParam.enable2x2, nss,
                         pRates->vhtRxMCSMap, pRates->vhtTxMCSMap);
 
-            if (psessionEntry) {
+            /* Check if VHT caps present to determine session NSS */
+            if ((psessionEntry) && (pPeerVHTCaps->present)) {
                     psessionEntry->supported_nss_1x1 =
                         ((pRates->vhtTxMCSMap & VHT_MCS_1x1) ==
                          VHT_MCS_1x1) ? true : false;
@@ -2013,8 +2014,8 @@ limPopulatePeerRateSet(tpAniSirGlobal pMac,
 
         psessionEntry->supported_nss_1x1 =
             ((pRates->supportedMCSSet[1] != 0) ? false : true);
-        PELOG1(limLog(pMac, LOG1, FL("HT supported nss 1x1 : %d "),
-                      psessionEntry->supported_nss_1x1);)
+        limLog(pMac, LOG1, FL("HT supported nss 1x1 : %d "),
+                      psessionEntry->supported_nss_1x1);
 
     }
 #ifdef WLAN_FEATURE_11AC
