@@ -1240,6 +1240,10 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 	if((gesture == DouTap && DouTap_gesture)||(gesture == RightVee && RightVee_gesture)\
         ||(gesture == LeftVee && LeftVee_gesture)||(gesture == UpVee && UpVee_gesture)\
         ||(gesture == Circle && Circle_gesture)||(gesture == DouSwip && DouSwip_gesture)){
+#ifdef WAKE_GESTURES
+		if (!dt2w_switch && s2w_switch && gesture == DouTap)
+			return;
+#endif
 		gesture_upload = gesture;
 		input_report_key(ts->input_dev, keyCode, 1);
 		input_sync(ts->input_dev);
