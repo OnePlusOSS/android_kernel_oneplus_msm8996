@@ -244,6 +244,12 @@ config CPU_BOOST
 
 	  If in doubt, say N.
 
+config MSM_SLEEPER
+	bool "Shut down cores while screen is off"
+	default y
+	help
+	  Shut down cores while screen is off
+
 menu "x86 CPU frequency scaling drivers"
 depends on X86
 source "drivers/cpufreq/Kconfig.x86"
