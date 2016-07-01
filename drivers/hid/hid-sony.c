@@ -1100,7 +1100,7 @@ static int sony_register_touchpad(struct hid_input *hi, int touch_count,
 	return 0;
 }
 
-static void sony_input_configured(struct hid_device *hdev,
+static int sony_input_configured(struct hid_device *hdev,
 					struct hid_input *hidinput)
 {
 	struct sony_sc *sc = hid_get_drvdata(hdev);
@@ -1114,6 +1114,8 @@ static void sony_input_configured(struct hid_device *hdev,
 			hid_err(sc->hdev,
 				"Unable to initialize multi-touch slots\n");
 	}
+
+	return 0;
 }
 
 /*
