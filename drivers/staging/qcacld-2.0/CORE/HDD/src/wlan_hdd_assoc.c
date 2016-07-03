@@ -1019,11 +1019,11 @@ static eHalStatus hdd_DisConnectHandler( hdd_adapter_t *pAdapter, tCsrRoamInfo *
                        pr_info(
                        "wlan: disconnected due to poor signal, rssi is %d dB\n",
                        pRoamInfo->rxRssi);
-               wlan_hdd_cfg80211_indicate_disconnect(dev, true,
-                                                     WLAN_REASON_UNSPECIFIED);
+               wlan_hdd_cfg80211_indicate_disconnect(dev, false,
+                                                     pRoamInfo->reasonCode);
             }
             else
-               wlan_hdd_cfg80211_indicate_disconnect(dev, true,
+               wlan_hdd_cfg80211_indicate_disconnect(dev, false,
                                                      WLAN_REASON_UNSPECIFIED);
 
             hddLog(VOS_TRACE_LEVEL_INFO_HIGH,

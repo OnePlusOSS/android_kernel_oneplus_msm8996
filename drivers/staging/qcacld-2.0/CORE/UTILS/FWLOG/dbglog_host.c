@@ -1377,7 +1377,8 @@ wmi_config_debug_module_cmd(wmi_unified_t  wmi_handle, A_UINT32 param, A_UINT32 
         }
     }
 
-    AR_DEBUG_PRINTF(ATH_DEBUG_ERR, ("wmi_dbg_cfg_send: param 0x%x val 0x%x \n ", param, val));
+    AR_DEBUG_PRINTF(ATH_DEBUG_INFO, ("wmi_dbg_cfg_send: param 0x%x val 0x%x \n",
+                                     param, val));
 
     status = wmi_unified_cmd_send(wmi_handle, buf,
                 len, WMI_DBGLOG_CFG_CMDID);
