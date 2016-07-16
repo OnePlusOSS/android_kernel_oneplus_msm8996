@@ -1275,6 +1275,11 @@ void limHandleFTPreAuthRsp(tpAniSirGlobal pMac, tSirRetStatus status,
       pftSessionEntry->limSmeState = eLIM_SME_WT_REASSOC_STATE;
       pftSessionEntry->smpsMode = psessionEntry->smpsMode;
 
+      if (IS_5G_CH(psessionEntry->ftPEContext.pFTPreAuthReq->preAuthchannelNum))
+          pftSessionEntry->vdev_nss = pMac->vdev_type_nss_5g.sta;
+      else
+          pftSessionEntry->vdev_nss = pMac->vdev_type_nss_2g.sta;
+
       PELOGE(limLog(pMac, LOG1, "%s:created session (%p) with id = %d",
                __func__, pftSessionEntry, pftSessionEntry->peSessionId);)
 
