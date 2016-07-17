@@ -298,6 +298,8 @@ struct synaptics_ts_data {
 	char fw_name[TP_FW_NAME_MAX_LEN];
 	char fw_id[12];
 	char manu_name[12];
+
+	bool stop_keypad;
 };
 
 static int tc_hw_pwron(struct synaptics_ts_data *ts)
@@ -920,7 +922,7 @@ static void synaptics_ts_report(struct synaptics_ts_data *ts )
 #elif (defined SUPPORT_VIRTUAL_KEY)
         if (virtual_key_enable)
             int_virtual_key(ts);
-        else
+        else if (!ts->stop_keypad)
             int_key(ts);
 #endif
     }
@@ -2022,6 +2024,73 @@ static int choice_gpio_function(struct synaptics_ts_data *ts)
 	return ret;
 }
 
+static void synaptics_input_event(struct input_handle *handle,
+		unsigned int type, unsigned int code, int value)
+{
+	struct synaptics_ts_data *ts = tc_g;
+
+	if (code != BTN_TOOL_FINGER)
+		return;
+
+	/* Disable capacitive keys when user's finger is on touchscreen */
+	ts->stop_keypad = value;
+}
+
+static int synaptics_input_connect(struct input_handler *handler,
+		struct input_dev *dev, const struct input_device_id *id)
+{
+	struct input_handle *handle;
+	int ret;
+
+	handle = kzalloc(sizeof(*handle), GFP_KERNEL);
+	if (!handle)
+		return -ENOMEM;
+
+	handle->dev = dev;
+	handle->handler = handler;
+	handle->name = "s1302_handle";
+
+	ret = input_register_handle(handle);
+	if (ret)
+		goto err2;
+
+	ret = input_open_device(handle);
+	if (ret)
+		goto err1;
+
+	return 0;
+
+err1:
+	input_unregister_handle(handle);
+err2:
+	kfree(handle);
+	return ret;
+}
+
+static void synaptics_input_disconnect(struct input_handle *handle)
+{
+	input_close_device(handle);
+	input_unregister_handle(handle);
+	kfree(handle);
+}
+
+static const struct input_device_id synaptics_input_ids[] = {
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_KEYBIT,
+		.keybit = { [BIT_WORD(BTN_TOOL_FINGER)] =
+				BIT_MASK(BTN_TOOL_FINGER) },
+	},
+	{ },
+};
+
+static struct input_handler synaptics_input_handler = {
+	.event		= synaptics_input_event,
+	.connect	= synaptics_input_connect,
+	.disconnect	= synaptics_input_disconnect,
+	.name		= "syna_input_handler",
+	.id_table	= synaptics_input_ids,
+};
+
 static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 #ifdef CONFIG_SYNAPTIC_RED
@@ -2155,6 +2224,11 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 		register_remote_device_s1302(premote_data);
     }
 #endif
+
+	ret = input_register_handler(&synaptics_input_handler);
+	if (ret)
+		TPD_ERR("%s: Failed to register input handler\n", __func__);
+
 	TPDTM_DMESG("synaptics_ts_probe s1302: normal end\n");
 	return 0;
 
