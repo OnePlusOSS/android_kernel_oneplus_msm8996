@@ -2376,6 +2376,7 @@ static int	synaptics_input_init(struct synaptics_ts_data *ts)
 	input_set_capability(ts->input_dev, EV_KEY, KEY_POWER);
 #endif
 #endif
+	set_bit(BTN_TOOL_FINGER, ts->input_dev->keybit);
 	/* For multi touch */
 	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, 0, (ts->max_x-1), 0, 0);
