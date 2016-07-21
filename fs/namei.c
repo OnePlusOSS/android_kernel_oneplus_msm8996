@@ -3743,6 +3743,8 @@ static long do_unlinkat(int dfd, const char __user *pathname)
 	struct inode *inode = NULL;
 	struct inode *delegated_inode = NULL;
 	unsigned int lookup_flags = 0;
+	char *path_buf = NULL;
+	char *propagate_path = NULL;
 retry:
 	name = user_path_parent(dfd, pathname, &nd, lookup_flags);
 	if (IS_ERR(name))
@@ -3767,6 +3769,12 @@ retry_deleg:
 		inode = dentry->d_inode;
 		if (d_is_negative(dentry))
 			goto slashes;
+
+		if (inode->i_sb->s_op->unlink_callback) {
+			path_buf = kmalloc(PATH_MAX, GFP_KERNEL);
+			propagate_path = dentry_path_raw(dentry, path_buf, PATH_MAX);
+		}
+
 		ihold(inode);
 		error = security_path_unlink(&nd.path, dentry);
 		if (error)
@@ -3776,6 +3784,10 @@ exit2:
 		dput(dentry);
 	}
 	mutex_unlock(&nd.path.dentry->d_inode->i_mutex);
+	if (path_buf && !error) {
+		inode->i_sb->s_op->unlink_callback(inode->i_sb, propagate_path);
+		kfree(path_buf);
+	}
 	if (inode)
 		iput(inode);	/* truncate the inode here */
 	inode = NULL;

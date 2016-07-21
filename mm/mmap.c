@@ -1276,6 +1276,9 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 
 	*populate = 0;
 
+	while (file && (file->f_mode & FMODE_NONMAPPABLE))
+		file = file->f_op->get_lower_file(file);
+
 #ifdef CONFIG_MSM_APP_SETTINGS
 	if (file && file->f_path.dentry) {
 		const char *name = file->f_path.dentry->d_name.name;
