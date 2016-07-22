@@ -72,8 +72,8 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 	opts->userid = 0;
 	/* by default, we use LOWER_FS_EXT4 as lower fs type */
 	opts->lower_fs = LOWER_FS_EXT4;
-	/* by default, 0MB is reserved */
-	opts->reserved_mb = 0;
+	/* by default, 20MB is reserved */
+	opts->reserved_mb = 20;
 	/* by default, mask is 0 */
 	opts->mask = 0;
 	/* by default, multi_user is false */
