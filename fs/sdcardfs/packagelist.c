@@ -237,7 +237,7 @@ static int packagelist_reader(void *thread_data)
 
 	while (!kthread_should_stop()) {
 		if (signal_pending(current)) {
-			ssleep(1);
+			msleep(100);
 			continue;
 		}
 
