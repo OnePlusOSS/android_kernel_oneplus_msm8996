@@ -529,6 +529,7 @@ struct mdss_dsi_ctrl_pdata {
 	struct dsi_err_container err_cont;
     int  max_brightness_level;
     char high_brightness_panel;
+	int  SRGB_mode;
 
 	bool ds_registered;
 
@@ -655,6 +656,8 @@ void mdss_dsi_dfps_config_8996(struct mdss_dsi_ctrl_pdata *ctrl);
 void mdss_dsi_panel_set_acl(struct mdss_dsi_ctrl_pdata *ctrl, int mode);
 void mdss_dsi_panel_set_max_brightness(struct mdss_dsi_ctrl_pdata *ctrl, int level);
 int mdss_dsi_panel_get_max_brightness(struct mdss_dsi_ctrl_pdata *ctrl);
+void mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_get_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl);
 
 static inline const char *__mdss_dsi_pm_name(enum dsi_pm_type module)
 {

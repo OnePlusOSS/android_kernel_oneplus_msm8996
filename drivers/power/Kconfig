@@ -511,6 +511,11 @@ config FG_BQ27541
         help
           Say Y here to enable the TI Fuel Gauge driver.
 
+config ONEPLUS_FASTCHG
+        tristate "ONEPLUS FAST CHARGE"
+        depends on I2C
+        help
+          Say Y here to enable the ONEPLUS FAST CHARGE driver.
 
 config BATTERY_BCL
 	tristate "Battery Current Limit driver"

@@ -3723,6 +3723,7 @@ exit_createworkqueue_failed:
 err_check_functionality_failed:
 	tpd_power(ts, 0);
 err_alloc_data_failed:
+	tpd_i2c_driver.driver.pm=NULL;
 	kfree(ts);
 	ts = NULL;
 	ts_g = NULL;
