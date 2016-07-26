@@ -382,7 +382,6 @@
 				<0x994400 0x588>,
 				<0x828000 0x108>;
 			reg-names = "dsi_ctrl", "dsi_phy", "mmss_misc_phys";
-//guozhiming modify for lcd 2015-10-15
 			qcom,timing-db-mode;
 			oled-vdda-supply = <&pm8994_s5>;
 			//vddio-supply = <&pm8994_l14>;
@@ -417,10 +416,10 @@
 							ff 06
 							ff 06
 							ff 00];
-//			qcom,platform-regulator-settings = [1d
-//							1d 1d 1d 1d];
-			qcom,platform-regulator-settings = [17
-							17 17 17 17];    //guozhiming modify for LCD blurred screen
+			qcom,platform-regulator-settings = [1d
+							1d 1d 1d 1d];
+//			qcom,platform-regulator-settings = [17
+//							17 17 17 17];
 			qcom,platform-lane-config = [00 00 10 0f
 						00 00 10 0f
 						00 00 10 0f

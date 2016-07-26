@@ -252,6 +252,46 @@ void mdss_dsi_panel_set_acl(struct mdss_dsi_ctrl_pdata *ctrl, int mode)
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
+static char srgb_status = 0;
+static char srgb_mode[2] = {0x57, 0x40};
+static struct dsi_cmd_desc srgb_cmd = {
+	{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(srgb_mode)},
+	srgb_mode
+};
+void mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
+{
+	struct dcs_cmd_req cmdreq;
+	struct mdss_panel_info *pinfo;
+
+	pinfo = &(ctrl->panel_data.panel_info);
+	if (pinfo->dcs_cmd_by_left) {
+		if (ctrl->ndx != DSI_CTRL_LEFT)
+			return;
+	}
+
+	if (level){
+	    srgb_mode[1] = 0x4C;
+	    pr_err("sRGB Mode On.\n");
+	}
+	else{
+		srgb_mode[1] = 0x40;
+	    pr_err("sRGB Mode off.\n");
+	}
+	srgb_status = level;
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	cmdreq.cmds = &srgb_cmd;
+	cmdreq.cmds_cnt = 1;
+	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
+	cmdreq.rlen = 0;
+	cmdreq.cb = NULL;
+
+	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+}
+int mdss_dsi_panel_get_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+   return srgb_status;
+}
+
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int rc = 0;
@@ -977,6 +1017,9 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		mdss_dsi_panel_cmds_send(ctrl, on_cmds, CMD_REQ_COMMIT);
 	if(ctrl->acl_mode)
 		mdss_dsi_panel_set_acl(ctrl,ctrl->acl_mode);
+   	 if (mdss_dsi_panel_get_srgb_mode(ctrl)){
+       		 mdss_dsi_panel_set_srgb_mode(ctrl, mdss_dsi_panel_get_srgb_mode(ctrl));
+    }
 	if (pinfo->compression_mode == COMPRESSION_DSC)
 		mdss_dsi_panel_dsc_pps_send(ctrl, pinfo);
 
