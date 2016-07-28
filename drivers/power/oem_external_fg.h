@@ -30,11 +30,17 @@ struct external_battery_gauge {
 	int (*fast_chg_started_status) (int status);
 	int (*get_fastchg_firmware_already_updated) (void);
 };
-
+struct notify_dash_event {
+	int (*notify_event) (void);
+	int (*notify_dash_charger_present) (int true);
+};
 struct notify_usb_enumeration_status {
 	int (*notify_usb_enumeration) (int status);
 };
 void  regsister_notify_usb_enumeration_status(struct  notify_usb_enumeration_status *event);
+
+void notify_dash_unplug_register(struct  notify_dash_event *event);
+void notify_dash_unplug_unregister(struct  notify_dash_event *event);
 
 void fastcharge_information_unregister(struct external_battery_gauge *fast_chg);
 void fastcharge_information_register(struct external_battery_gauge *fast_chg);
