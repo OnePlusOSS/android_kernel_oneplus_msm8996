@@ -580,7 +580,7 @@ static struct hid_driver magicmouse_driver = {
 	.probe = magicmouse_probe,
 	.raw_event = magicmouse_raw_event,
 	.input_mapping = magicmouse_input_mapping,
-	.input_configured = magicmouse_input_configured,
+	.input_configured = (void*)magicmouse_input_configured,
 };
 module_hid_driver(magicmouse_driver);
 

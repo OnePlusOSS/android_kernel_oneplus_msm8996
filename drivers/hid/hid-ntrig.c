@@ -1025,7 +1025,7 @@ static struct hid_driver ntrig_driver = {
 	.remove = ntrig_remove,
 	.input_mapping = ntrig_input_mapping,
 	.input_mapped = ntrig_input_mapped,
-	.input_configured = ntrig_input_configured,
+	.input_configured = (void*)ntrig_input_configured,
 	.usage_table = ntrig_grabbed_usages,
 	.event = ntrig_event,
 };
