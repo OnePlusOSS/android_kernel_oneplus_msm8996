@@ -37,6 +37,11 @@ static struct workqueue_struct *s2s_input_wq;
 static struct work_struct s2s_input_work;
 static int vib_strength = VIB_STRENGTH;
 
+void sweep2sleep_setdev(struct input_dev * input_device) {
+	sweep2sleep_pwrdev = input_device;
+	return;
+}
+
 /* PowerKey work func */
 static void sweep2sleep_presspwr(struct work_struct * sweep2sleep_presspwr_work) {
 
@@ -293,23 +298,6 @@ static int __init sweep2sleep_init(void)
 {
 	int rc = 0;
 
-	sweep2sleep_pwrdev = input_allocate_device();
-	if (!sweep2sleep_pwrdev) {
-		pr_err("Failed to allocate sweep2sleep_pwrdev\n");
-		goto err_alloc_dev;
-	}
-
-	input_set_capability(sweep2sleep_pwrdev, EV_KEY, KEY_POWER);
-
-	sweep2sleep_pwrdev->name = "s2s_pwrkey";
-	sweep2sleep_pwrdev->phys = "s2s_pwrkey/input0";
-
-	rc = input_register_device(sweep2sleep_pwrdev);
-	if (rc) {
-		pr_err("%s: input_register_device err=%d\n", __func__, rc);
-		goto err_input_dev;
-	}
-
 	s2s_input_wq = create_workqueue("s2s_iwq");
 	if (!s2s_input_wq) {
 		pr_err("%s: Failed to create workqueue\n", __func__);
@@ -333,12 +321,6 @@ static int __init sweep2sleep_init(void)
 	rc = sysfs_create_file(sweep2sleep_kobj, &dev_attr_vib_strength.attr);
 	if (rc)
 		pr_err("%s: sysfs_create_file failed for vib_strength\n", __func__);
-
-err_input_dev:
-	input_free_device(sweep2sleep_pwrdev);
-
-err_alloc_dev:
-	pr_info("%s done\n", __func__);
 
 	return 0;
 }
