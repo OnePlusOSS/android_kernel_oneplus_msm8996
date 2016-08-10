@@ -375,6 +375,11 @@ process_tx_info(struct ol_txrx_pdev_t *txrx_pdev,
 					     >> TX_DESC_ID_HIGH_SHIFT);
 				msdu_id += 1;
 			}
+			if (tx_desc_id >= ol_cfg_target_tx_credit(txrx_pdev->ctrl_pdev)) {
+				adf_os_print("%s: drop due to invalid msdu id = %x\n",
+						__func__, tx_desc_id);
+				return A_ERROR;
+			}
 			tx_desc = ol_tx_desc_find(txrx_pdev, tx_desc_id);
 			adf_os_assert(tx_desc);
 			netbuf = tx_desc->netbuf;
@@ -385,7 +390,7 @@ process_tx_info(struct ol_txrx_pdev_t *txrx_pdev,
 
 			if (len < (2 * IEEE80211_ADDR_LEN)) {
 				adf_os_print("TX frame does not have a valid address\n");
-				return -1;
+				return A_ERROR;
 			}
 			/* Adding header information for the TX data frames */
 			vdev_id = (u_int8_t)(*(htt_tx_desc +
