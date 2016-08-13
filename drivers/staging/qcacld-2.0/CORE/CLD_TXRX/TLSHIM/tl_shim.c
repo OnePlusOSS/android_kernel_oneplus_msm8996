@@ -709,6 +709,10 @@ static int tlshim_mgmt_rx_process(void *context, u_int8_t *data,
 				adf_nbuf_pull_head(wbuf, IEEE80211_CCMP_HEADERLEN);
 				adf_nbuf_trim_tail(wbuf, IEEE80211_CCMP_MICLEN);
 
+				/* wh is moved, restore wh with relocated
+				 * ieee80211_frame header.
+				 */
+				wh = (struct ieee80211_frame *) adf_nbuf_data(wbuf);
 				rx_pkt->pkt_meta.mpdu_hdr_ptr = adf_nbuf_data(wbuf);
 				rx_pkt->pkt_meta.mpdu_len = adf_nbuf_len(wbuf);
 				rx_pkt->pkt_meta.mpdu_data_len =
