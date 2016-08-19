@@ -527,9 +527,10 @@ struct mdss_dsi_ctrl_pdata {
 	struct completion te_comp;
 	int acl_mode;
 	struct dsi_err_container err_cont;
-    int  max_brightness_level;
-    char high_brightness_panel;
+	int  max_brightness_level;
+	char high_brightness_panel;
 	int  SRGB_mode;
+	int SRGB_first_on;
 
 	bool ds_registered;
 
