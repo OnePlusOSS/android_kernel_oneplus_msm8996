@@ -513,3 +513,36 @@ int get_param_pcba_number(char *pcba_number_select)
 	return ret;
 }
 EXPORT_SYMBOL(get_param_pcba_number);
+
+int set_param_lcm_srgb_mode(uint * lcm_srgb_mode)
+{
+	int ret;
+	uint32 sid_index= PARAM_SID_LCD;
+	uint32 offset = offsetof(param_lcd_t, lcm_srgb_mode);
+
+	ret = set_param_by_index_and_offset(sid_index,offset,
+	            lcm_srgb_mode, sizeof(*lcm_srgb_mode));
+	if(ret < 0){
+		pr_info("%s[%d]  failed\n",__func__, __LINE__);
+		return ret;
+	}
+        pr_err("set lcm_srgb_mode = %d\n", *lcm_srgb_mode);
+	return ret;
+}
+EXPORT_SYMBOL(set_param_lcm_srgb_mode);
+
+int get_param_lcm_srgb_mode(uint *lcm_srgb_mdoe)
+{
+	int ret;
+	uint32 sid_index= PARAM_SID_LCD;
+	uint32 offset = offsetof(param_lcd_t, lcm_srgb_mode);
+
+	ret = get_param_by_index_and_offset(sid_index,offset,lcm_srgb_mdoe, sizeof(lcm_srgb_mdoe));
+	if(ret < 0){
+		pr_info("%s[%d]  failed\n",__func__, __LINE__);
+		return ret;
+	}
+	return ret;
+}
+EXPORT_SYMBOL(get_param_lcm_srgb_mode);
+//end
