@@ -12577,11 +12577,13 @@ static ssize_t speaker_gain_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
 	u16 value;
+	s64 vol;
 
 	value = snd_soc_read(tfa98xx_codec_ptr, TFA98XX_AUDIO_CTR);
 	value >>= 8;
+	vol = TO_FIXED(value) / -2;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", TO_FIXED(value) / -2);
+	return snprintf(buf, PAGE_SIZE, "%d\n", (int)vol);
 }
 
 static ssize_t speaker_gain_store(struct kobject *kobj,
@@ -12592,7 +12594,10 @@ static ssize_t speaker_gain_store(struct kobject *kobj,
 	int volume_value;
 
 	sscanf(buf, "%d", &input);
+	if (input < 0 || input > 127)
+		input = 0;
 
+	value = snd_soc_read(tfa98xx_codec_ptr, TFA98XX_AUDIO_CTR);
 	volume_value = 2 * input;
 	if (volume_value > 255)
 		volume_value = 255;
