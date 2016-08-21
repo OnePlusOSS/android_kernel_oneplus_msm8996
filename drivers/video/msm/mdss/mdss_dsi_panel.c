@@ -252,7 +252,6 @@ void mdss_dsi_panel_set_acl(struct mdss_dsi_ctrl_pdata *ctrl, int mode)
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
-static char srgb_status = 0;
 static char srgb_mode[2] = {0x57, 0x40};
 static struct dsi_cmd_desc srgb_cmd = {
 	{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(srgb_mode)},
@@ -277,7 +276,6 @@ void mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 		srgb_mode[1] = 0x40;
 	    pr_err("sRGB Mode off.\n");
 	}
-	srgb_status = level;
 	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = &srgb_cmd;
 	cmdreq.cmds_cnt = 1;
@@ -289,7 +287,7 @@ void mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 }
 int mdss_dsi_panel_get_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl)
 {
-   return srgb_status;
+   return ctrl->SRGB_mode;
 }
 
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
