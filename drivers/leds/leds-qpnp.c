@@ -261,6 +261,7 @@
 #define LED_CUSTOM_PAUSE_HI		1400
 #define LED_CUSTOM_PAUSE_LO		2000
 #define LED_CUSTOM_RAMP_STEP	90
+#define LED_CUSTOM_PWM_US		1000
 
 
 int led_enable_fade = 1;	// default is fading
@@ -308,6 +309,21 @@ u32 convert_ramp_ms_store (u32 ramp_step_ms)
 
 	pr_debug("Boeffla-LED: ramp_step_ms new = %d\n", ramp_step_ms);
 	return ramp_step_ms;
+}
+
+u32 convert_pwm_us (u32 pwm_us)
+{
+	pr_debug("Boeffla-LED: pwm_us orig = %d\n", pwm_us);
+
+	// speed is set to stock = take roms ramp times
+	if (led_speed == LED_SPEED_STOCK_MODE)
+		return pwm_us;
+
+	// fix value for pwm us
+	pwm_us = LED_CUSTOM_PWM_US;
+
+	pr_debug("Boeffla-LED: pwm_us new = %d\n", pwm_us);
+	return pwm_us;
 }
 
 int check_for_notification_led(struct led_classdev *led_cdev)
@@ -2298,6 +2314,9 @@ static ssize_t pwm_us_store(struct device *dev,
 	if (ret)
 		return ret;
 
+	if (check_for_notification_led(led_cdev))
+		pwm_us = convert_pwm_us(pwm_us);
+
 	switch (led->id) {
 	case QPNP_ID_LED_MPP:
 		pwm_cfg = led->mpp_cfg->pwm_cfg;
@@ -2780,6 +2799,19 @@ static ssize_t blink_store(struct device *dev,
 		return ret;
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
 	led->cdev.brightness = blinking ? led->cdev.max_brightness : 0;
+
+	// AP: ensure, pwm configuration is always updated to avoid issues after startup
+	// with apps, that do not set it completely for all LEDs (e.g. WhatsApp);
+	// only do the update when we are not in stock speed mode and for RGB LEDs
+	if (check_for_notification_led(led_cdev) && (led_speed != LED_SPEED_STOCK_MODE))
+	{
+		pwm_free(led->rgb_cfg->pwm_cfg->pwm_dev);
+		led->rgb_cfg->pwm_cfg->lut_params.lut_pause_hi = convert_pause_hi_store(LED_CUSTOM_PAUSE_HI);
+		led->rgb_cfg->pwm_cfg->lut_params.lut_pause_lo = convert_pause_lo_store(LED_CUSTOM_PAUSE_LO);
+		led->rgb_cfg->pwm_cfg->pwm_period_us = convert_pwm_us(LED_CUSTOM_PWM_US);
+		led->rgb_cfg->pwm_cfg->lut_params.ramp_step_ms = convert_ramp_ms_store(LED_CUSTOM_RAMP_STEP);
+		qpnp_pwm_init(led->rgb_cfg->pwm_cfg, led->spmi_dev, led->cdev.name);
+	}
 
 	switch (led->id) {
 	case QPNP_ID_LED_MPP:
