@@ -1606,9 +1606,24 @@ static ssize_t fwu_sysfs_store_image(struct file *data_file,
 		struct kobject *kobj, struct bin_attribute *attributes,
 		char *buf, loff_t pos, size_t count)
 {
-	memcpy((void *)(&fwu->ext_data_source[fwu->data_pos]),
-			(const void *)buf,
-			count);
+	int retval;
+	struct synaptics_rmi4_data *rmi4_data = fwu->rmi4_data;
+
+	if (count > (fwu->image_size - fwu->data_pos)) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Not enough space in buffer\n",
+				__func__);
+		return -EINVAL;
+	}
+
+	retval = secure_memcpy(&fwu->ext_data_source[fwu->data_pos],
+			fwu->image_size - fwu->data_pos, buf, count, count);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Failed to copy image data\n",
+				__func__);
+		return retval;
+	}
 
 	fwu->data_pos += count;
 
