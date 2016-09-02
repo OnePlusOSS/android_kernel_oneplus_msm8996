@@ -3626,6 +3626,13 @@ static ssize_t fwu_sysfs_store_image(struct file *data_file,
 	int retval;
 	struct synaptics_rmi4_data *rmi4_data = fwu->rmi4_data;
 
+	if (count > (fwu->image_size - fwu->data_pos)) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Not enough space in buffer\n",
+				__func__);
+		return -EINVAL;
+	}
+
 	retval = secure_memcpy(&fwu->ext_data_source[fwu->data_pos],
 			fwu->image_size - fwu->data_pos, buf, count, count);
 	if (retval < 0) {
