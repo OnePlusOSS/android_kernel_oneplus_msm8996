@@ -72,7 +72,10 @@ static void check_poison_mem(unsigned char *mem, size_t bytes)
 	if (!__ratelimit(&ratelimit))
 		return;
 	else if (start == end && single_bit_flip(*start, PAGE_POISON))
+    {
 		printk(KERN_ERR "pagealloc: single bit error\n");
+        printk(KERN_ERR "virt: %p, phys: 0x%llx\n", start, virt_to_phys(start));
+    }
 	else
 		printk(KERN_ERR "pagealloc: memory corruption\n");
 

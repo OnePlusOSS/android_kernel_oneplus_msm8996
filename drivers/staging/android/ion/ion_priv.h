@@ -91,6 +91,9 @@ struct ion_buffer {
 	int handle_count;
 	char task_comm[TASK_COMM_LEN];
 	pid_t pid;
+    pid_t client_tgid;
+    pid_t client_pid;
+    char timestamp[50];
 };
 void ion_buffer_destroy(struct ion_buffer *buffer);
 
