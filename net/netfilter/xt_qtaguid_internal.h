@@ -197,6 +197,26 @@ static inline uint64_t dc_sum_packets(struct data_counters *counters,
 		+ counters->bpc[set][direction][IFS_PROTO_OTHER].packets;
 }
 
+#include <linux/sched.h>
+
+struct pid_node {
+	struct rb_node node;
+	char tag[TASK_COMM_LEN];
+};
+
+struct pid_stat {
+	struct pid_node tn;
+	struct data_counters counters;
+	pid_t pid;
+	tag_t uid;
+	int index;
+	struct list_head pslist;
+};
+
+struct split_uid {
+	uid_t uid;
+	struct list_head list;
+};
 
 /* Generic X based nodes used as a base for rb_tree ops */
 struct tag_node {
@@ -212,6 +232,9 @@ struct tag_stat {
 	 * matching parent uid_tag.
 	 */
 	struct data_counters *parent_counters;
+	struct rb_root pid_stat_tree;
+	spinlock_t pid_stat_list_lock;
+	struct iface_stat *iface_stat;
 };
 
 struct iface_stat {
@@ -238,6 +261,7 @@ struct iface_stat {
 	struct proc_dir_entry *proc_ptr;
 
 	struct rb_root tag_stat_tree;
+	struct list_head pid_stat_list;
 	spinlock_t tag_stat_list_lock;
 };
 
