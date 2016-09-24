@@ -1212,12 +1212,20 @@ int float_to_int(u32 x)
 	return (int)((m >> e) & -(e < 32));
 }
 
+#ifdef CONFIG_SOUND_CONTROL
+int tfa98xx_get_volume(struct tfa98xx *tfa98xx, s64 *pVoldB);
+#endif
+
 int tfa98xx_set_volume(struct tfa98xx *tfa98xx, u32 voldB)
 {
 	struct snd_soc_codec *codec = tfa98xx->codec;
 	u16 value;
 	int volume_value;
+#ifdef CONFIG_SOUND_CONTROL
+	s64 cur_volume;
 
+	tfa98xx_get_volume(tfa98xx, &cur_volume);
+#endif
 	value = snd_soc_read(codec, TFA98XX_AUDIO_CTR);
 
 	/*
@@ -1232,6 +1240,11 @@ int tfa98xx_set_volume(struct tfa98xx *tfa98xx, u32 voldB)
 		volume_value = 255;
 
 	pr_debug("%d, attenuation -%d dB\n", volume_value, float_to_int(voldB));
+
+#ifdef CONFIG_SOUND_CONTROL
+	if (cur_volume < 0)
+		return 0;
+#endif
 
 	/* volume value is in the top 8 bits of the register */
 	value = (value & 0x00FF) | (u16)(volume_value << 8);
