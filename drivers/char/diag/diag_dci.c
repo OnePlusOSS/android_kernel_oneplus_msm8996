@@ -3000,7 +3000,7 @@ int diag_dci_write_proc(uint8_t peripheral, int pkt_type, char *buf, int len)
 		DIAG_LOG(DIAG_DEBUG_DCI,
 			"buf: 0x%pK, p: %d, len: %d, f_mask: %d\n",
 				buf, peripheral, len,
-				driver->feature[peripheral].rcvd_feature_mask);
+				driver->feature[PERIPHERAL_MODEM].rcvd_feature_mask);
 		return -EINVAL;
 	}
 
