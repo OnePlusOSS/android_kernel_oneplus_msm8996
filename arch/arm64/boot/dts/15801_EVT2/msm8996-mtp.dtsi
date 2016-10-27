@@ -392,6 +392,11 @@
        qcom,panel-supply-entries = <&dsi_panel_pwr_supply_no_labibb>;
 };
 
+&dsi_samsung_s6e3fa5_1080p_cmd {
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,cont-splash-enabled;
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_no_labibb>;
+};
 
 /{
 	mtp_batterydata: qcom,battery-data {
@@ -960,7 +965,7 @@
 
 &i2c_8 { /* BLSP2 QUP2 */
 	synaptics-rmi-ts@20 {
-		compatible = "synaptics,s1302";
+		compatible = "HWK,synaptics,s1302";
 		reg = <0x20>;
 		interrupt-parent = <&tlmm>;
 		interrupts = <132 0x2008>;

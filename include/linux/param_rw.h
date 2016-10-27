@@ -98,6 +98,40 @@ typedef struct
     //Add value must below here
 }param_misc_t;
 
+typedef struct
+{
+    param_product_desc_head_t sid_head;
+    int is_rooted;
+    int root_time;
+    char flash_0[16]; //the recently flashed partition
+    char flash_1[16]; //the next-recently flashed partition
+    char flash_2[16]; //the third recently flashed partition
+    char erase_0[16]; //the recently erased partition
+    char erase_1[16]; //the next-recently erased partition
+    char erase_2[16]; //the third recently erased partition
+}param_saleinfo_t;
+
+
+typedef struct
+{
+    param_product_desc_head_t sid_head;
+    char smt_download_time1[32];
+	char smt_download_version1[32];
+	char smt_download_time2[32];
+	char smt_download_version2[32];
+	char smt_download_time3[32];
+	char smt_download_version3[32];
+	char upgrade_download_time1[32];
+	char upgrade_download_version1[32];
+	char upgrade_download_time2[32];
+	char upgrade_download_version2[32];
+	char upgrade_download_time3[32];
+	char upgrade_download_version3[32];
+	int boot_stage;
+	int data_stage;
+	int reset_devinfo;
+}param_download_t;
+
 typedef enum {
 	PARAM_SID_PRODUCT = 0,
 	PARAM_SID_CONFIG,
@@ -109,7 +143,9 @@ typedef enum {
 	PARAM_SID_BATTERY,
 	PARAM_SID_RTC,
 	PARAM_SID_CRASH_RECORD,
+	PARAM_SID_SALEINFO,
 	PARAM_SID_MISC,
+	PARAM_SID_DOWNLOAD,
 	PARAM_SID_INVALID
 } param_sid_index_t;
 
@@ -125,7 +161,9 @@ static char * sid_name_strs[PARAM_SID_INVALID] = {
 "BATTERY",
 "RTC",
 "CRASH_RECORD",
-"MISC"
+"SALEINFO",
+"MISC",
+"DOWNLOAD"
 };
 #endif
 
@@ -147,6 +185,7 @@ typedef struct
     CHUNK_UNION(rtc);
     CHUNK_UNION(crash_record);
     CHUNK_UNION(misc);
+	CHUNK_UNION(download);
 }global_param_data_t;
 
 int get_param_camera_laser_sensor_offset(uint * laser_sensor_offset);

@@ -29,6 +29,7 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
 #include <linux/qpnp/power-on.h>
+#include <linux/syscalls.h>
 
 #include <linux/oem_force_dump.h>
 
@@ -202,6 +203,7 @@ struct qpnp_pon {
 	struct pon_regulator	*pon_reg_cfg;
 	struct list_head	list;
 	struct delayed_work	bark_work;
+	struct delayed_work	press_work;
 	struct dentry		*debugfs;
 	int			pon_trigger_reason;
 	int			pon_power_off_reason;
@@ -778,11 +780,17 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 
 	switch (cfg->pon_type) {
 	case PON_KPDPWR:
-        pon_rt_bit = QPNP_PON_KPDPWR_N_SET;
-        if ((pon_rt_sts & pon_rt_bit) == 0)
-           pr_err("Power-Key UP\n");
-        else
-           pr_err("Power-Key DOWN\n");
+		pon_rt_bit = QPNP_PON_KPDPWR_N_SET;
+		if ((pon_rt_sts & pon_rt_bit) == 0)
+		{
+			printk("Power-Key UP\n");
+			cancel_delayed_work(&pon->press_work);
+		}
+		else
+		{
+			printk("Power-Key DOWN\n");
+			schedule_delayed_work(&pon->press_work,msecs_to_jiffies(3000));
+		}
 		break;
 	case PON_RESIN:
 		pon_rt_bit = QPNP_PON_RESIN_N_SET;
@@ -967,6 +975,34 @@ static void bark_work_func(struct work_struct *work)
 		schedule_delayed_work(&pon->bark_work, QPNP_KEY_STATUS_DELAY);
 	}
 
+err_return:
+	return;
+}
+
+static void press_work_func(struct work_struct *work)
+{
+	int rc;
+	struct qpnp_pon_config *cfg = NULL;
+	struct qpnp_pon *pon =
+		container_of(work, struct qpnp_pon, press_work.work);
+	u8 pon_rt_sts = 0;
+
+	cfg = qpnp_get_cfg(pon, PON_KPDPWR);
+	if (!cfg) {
+		dev_err(&pon->spmi->dev, "Invalid config pointer\n");
+		goto err_return;
+	}
+	/* check the RT status to get the current status of the line */
+	rc = spmi_ext_register_readl(pon->spmi->ctrl, pon->spmi->sid,
+		QPNP_PON_RT_STS(pon), &pon_rt_sts, 1);
+	if (rc) {
+		dev_err(&pon->spmi->dev, "Unable to read PON RT status\n");
+		goto err_return;
+	}
+	if ((pon_rt_sts & QPNP_PON_KPDPWR_N_SET) == 1)
+		printk("after 3s Power-Key is still DOWN\n");
+	msleep(10);
+	sys_sync();
 err_return:
 	return;
 }
@@ -2392,6 +2428,7 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 	dev_set_drvdata(&spmi->dev, pon);
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
+	INIT_DELAYED_WORK(&pon->press_work, press_work_func);
 
 	/* register the PON configurations */
 	rc = qpnp_pon_config_init(pon);

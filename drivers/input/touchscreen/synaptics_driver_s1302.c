@@ -71,7 +71,7 @@ enum oem_boot_mode{
 
 /*------------------------------------------------Global Define--------------------------------------------*/
 #define TP_TEST_ENABLE 1
-#define TPD_DEVICE "synaptics,s1302"
+#define TPD_DEVICE "HWK,synaptics,s1302"
 #define LOG_TAG		"touchkey,s1302"
 
 #define SUPPORT_TP_SLEEP_MODE
