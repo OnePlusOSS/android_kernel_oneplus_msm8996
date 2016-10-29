@@ -12,6 +12,7 @@
 
 #include "dsi-panel-samsung_s6e3fa3_1080p_cmd.dtsi"  //guozhiming modify for lcd 2015-10-15
 #include "dsi-panel-samsung_s6e3fa3_1080p_video.dtsi"
+#include "dsi-panel-samsung_s6e3fa5_1080p_cmd.dtsi"
 
 &soc {
 	dsi_panel_pwr_supply: dsi_panel_pwr_supply {
@@ -132,6 +133,15 @@
 };
 
 &dsi_samsung_s6e3fa3_1080p_video {
+       qcom,mdss-dsi-panel-timings-8996 = [
+       24 1F 08 09 05 03 04 a0
+       24 1F 08 09 05 03 04 a0
+       24 1F 08 09 05 03 04 a0
+       24 1F 08 09 05 03 04 a0
+       24 1B 08 09 05 03 04 a0];
+};
+
+&dsi_samsung_s6e3fa5_1080p_cmd {
        qcom,mdss-dsi-panel-timings-8996 = [
        24 1F 08 09 05 03 04 a0
        24 1F 08 09 05 03 04 a0

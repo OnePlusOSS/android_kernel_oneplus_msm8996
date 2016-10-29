@@ -425,7 +425,8 @@ kgsl_mem_entry_attach_process(struct kgsl_mem_entry *entry,
 	idr_preload(GFP_KERNEL);
 	spin_lock(&process->mem_lock);
 	/* Allocate the ID but don't attach the pointer just yet */
-	id = idr_alloc(&process->mem_idr, NULL, 1, 0, GFP_NOWAIT);	spin_unlock(&process->mem_lock);
+	id = idr_alloc(&process->mem_idr, NULL, 1, 0, GFP_NOWAIT);
+	spin_unlock(&process->mem_lock);
 	idr_preload_end();
 
 	if (id < 0) {
