@@ -48,6 +48,49 @@ static struct msm_actuator *actuators[] = {
 	&msm_bivcm_actuator_table,
 };
 
+static int32_t msm_actuator_write_sequence(
+	struct msm_actuator_ctrl_t *a_ctrl,
+	uint16_t addr, uint8_t *data, uint32_t data_size)
+{
+    struct msm_camera_i2c_seq_reg_setting seq_reg_setting;
+	struct msm_camera_i2c_seq_reg_array *seq_reg_array;
+	int32_t i;
+	int32_t rc = 0;
+
+    if ((data_size > I2C_SEQ_REG_DATA_MAX) || !data) {
+        return -EFAULT;
+    }
+    seq_reg_array = kmalloc(sizeof(struct msm_camera_i2c_seq_reg_array),
+        GFP_KERNEL);
+    if (!seq_reg_array) {
+        return -ENOMEM;
+    }
+
+    seq_reg_array->reg_addr = addr;
+    for (i=0; i<data_size; i++) {
+        seq_reg_array->reg_data[i] = data[i];
+    }
+    seq_reg_array->reg_data_size = data_size;
+
+    seq_reg_setting.reg_setting = seq_reg_array;
+    seq_reg_setting.addr_type = a_ctrl->i2c_client.addr_type;
+    seq_reg_setting.size = 1;
+    seq_reg_setting.delay = 0;
+
+    rc = a_ctrl->i2c_client.i2c_func_tbl->
+		i2c_write_seq_table(
+		&a_ctrl->i2c_client, &seq_reg_setting);
+    if (rc < 0) {
+		pr_err("%s Failed I2C write Line %d\n",
+			__func__, __LINE__);
+		kfree(seq_reg_array);
+		return rc;
+	}
+	kfree(seq_reg_array);
+
+    return rc;
+}
+
 static int32_t msm_actuator_piezo_set_default_focus(
 	struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_move_params_t *move_params)
@@ -113,23 +156,47 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 				write_arr[i].hw_shift);
 
 			if (write_arr[i].reg_addr != 0xFFFF) {
-				i2c_byte1 = write_arr[i].reg_addr;
-				i2c_byte2 = value;
-				if (size != (i+1)) {
-					i2c_byte2 = value & 0xFF;
-					CDBG("byte1:0x%x, byte2:0x%x\n",
-						i2c_byte1, i2c_byte2);
-					i2c_tbl[a_ctrl->i2c_tbl_index].
-						reg_addr = i2c_byte1;
-					i2c_tbl[a_ctrl->i2c_tbl_index].
-						reg_data = i2c_byte2;
-					i2c_tbl[a_ctrl->i2c_tbl_index].
-						delay = 0;
-					a_ctrl->i2c_tbl_index++;
-					i++;
-					i2c_byte1 = write_arr[i].reg_addr;
-					i2c_byte2 = (value & 0xFF00) >> 8;
-				}
+
+                if (!strcmp(a_ctrl->pdev->name,"a0c000.qcom,cci:qcom,actuator@0")){
+                    i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = write_arr[i].reg_addr;
+                    i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = 0x90;
+                    i2c_tbl[a_ctrl->i2c_tbl_index].delay = 0;
+                    a_ctrl->i2c_tbl_index++;
+                    i++;
+
+                    i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = write_arr[i].reg_addr;
+                    i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = 0x00;
+                    i2c_tbl[a_ctrl->i2c_tbl_index].delay = 0;
+                    a_ctrl->i2c_tbl_index++;
+                    i++;
+
+                    i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = write_arr[i].reg_addr;
+                    i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = (value & 0xFF00) >> 8;
+                    i2c_tbl[a_ctrl->i2c_tbl_index].delay = 0;
+                    a_ctrl->i2c_tbl_index++;
+                    i++;
+                    i2c_byte1 = write_arr[i].reg_addr;
+                    i2c_byte2 = (value&0xFF);
+                }
+                else {
+                    i2c_byte1 = write_arr[i].reg_addr;
+                    i2c_byte2 = value;
+                    if (size != (i+1)) {
+                        i2c_byte2 = value & 0xFF;
+                        CDBG("byte1:0x%x, byte2:0x%x\n",
+                            i2c_byte1, i2c_byte2);
+                        i2c_tbl[a_ctrl->i2c_tbl_index].
+                            reg_addr = i2c_byte1;
+                        i2c_tbl[a_ctrl->i2c_tbl_index].
+                            reg_data = i2c_byte2;
+                        i2c_tbl[a_ctrl->i2c_tbl_index].
+                            delay = 0;
+                        a_ctrl->i2c_tbl_index++;
+                        i++;
+                        i2c_byte1 = write_arr[i].reg_addr;
+                        i2c_byte2 = (value & 0xFF00) >> 8;
+                    }
+                }
 			} else {
 				i2c_byte1 = (value & 0xFF00) >> 8;
 				i2c_byte2 = value & 0xFF;
@@ -646,6 +713,22 @@ static int32_t msm_actuator_move_focus(
 	kfree(ringing_params_kernel);
 
 	move_params->curr_lens_pos = curr_lens_pos;
+
+
+    if (!strcmp(a_ctrl->pdev->name,"a0c000.qcom,cci:qcom,actuator@0")) {
+
+        uint8_t data[4];
+        CDBG("curr_lens_pos=%d\n",
+            curr_lens_pos);
+        data[0] = 0x90;
+        data[1] = 0x00;
+        data[2] = move_params->curr_lens_pos>>8;
+        data[3] = move_params->curr_lens_pos & 0xFF;
+        rc = msm_actuator_write_sequence(a_ctrl, 0xF0, data, 4);
+        CDBG("Exit\n");
+        return rc;
+    }
+
 	reg_setting.reg_setting = a_ctrl->i2c_reg_tbl;
 	reg_setting.data_type = a_ctrl->i2c_data_type;
 	reg_setting.size = a_ctrl->i2c_tbl_index;
@@ -1131,6 +1214,21 @@ static int32_t msm_actuator_set_position(
 	for (index = 0; index < set_pos->number_of_steps; index++) {
 		next_lens_position = set_pos->pos[index];
 		delay = set_pos->delay[index];
+
+
+        if (!strcmp(a_ctrl->pdev->name,"a0c000.qcom,cci:qcom,actuator@0")) {
+
+            uint8_t data[4];
+            data[0] = 0x90;
+            data[1] = 0x00;
+            data[2] = next_lens_position>>8;
+            data[3] = next_lens_position & 0xFF;
+
+            pr_err("pgpg next_lens_position=%d",next_lens_position);
+
+            rc = msm_actuator_write_sequence(a_ctrl, 0xF0, data, 4);
+            continue;
+        }
 		a_ctrl->func_tbl->actuator_parse_i2c_params(a_ctrl,
 			next_lens_position, hw_params, delay);
 

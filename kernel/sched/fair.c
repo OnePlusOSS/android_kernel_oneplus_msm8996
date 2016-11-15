@@ -2811,6 +2811,35 @@ struct cpu_pwr_stats __weak *get_cpu_pwr_stats(void)
 	return NULL;
 }
 
+unsigned int power_cost_at_freq(int cpu, unsigned int freq)
+{
+	int i = 0;
+	struct cpu_pwr_stats *per_cpu_info = get_cpu_pwr_stats();
+	struct cpu_pstate_pwr *costs;
+
+	if (!per_cpu_info || !per_cpu_info[cpu].ptable ||
+	    !sysctl_sched_enable_power_aware)
+		/* When power aware scheduling is not in use, or CPU
+		 * power data is not available, just use the CPU
+		 * capacity as a rough stand-in for real CPU power
+		 * numbers, assuming bigger CPUs are more power
+		 * hungry. */
+		return cpu_max_possible_capacity(cpu);
+
+	if (!freq)
+		freq = min_max_freq;
+
+	costs = per_cpu_info[cpu].ptable;
+
+	while (costs[i].freq != 0) {
+		if (costs[i].freq >= freq ||
+		    costs[i+1].freq == 0)
+			return costs[i].power;
+		i++;
+	}
+	BUG();
+}
+
 /*
  * Return the cost of running task p on CPU cpu. This function
  * currently assumes that task p is the only task which will run on

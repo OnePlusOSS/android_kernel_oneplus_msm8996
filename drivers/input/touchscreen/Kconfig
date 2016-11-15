@@ -1116,4 +1116,20 @@ config TOUCHSCREEN_MAXIM_STI
 	  module will be called maxim_sti.
 
 source "drivers/input/touchscreen/gt9xx/Kconfig"
+
+config TOUCHSCREEN_SYNAPTICS_S3508_I2C_RMI
+	tristate "Synaptics s3508 i2c touchscreen"
+	depends on I2C
+	help
+	  This enables support for Synaptics s3508 RMI over I2C based touchscreens.
+config TOUCHSCREEN_SYNAPTICS_S1302_I2C_RMI
+	tristate "Synaptics s1302 i2c touchscreen"
+	depends on I2C
+	help
+	  This enables support for Synaptics s1302 RMI over I2C based touch key.
+config TOUCHSCREEN_SYNAPTICS_S3320_I2C_RMI
+	tristate "Synaptics s3320 i2c touchscreen"
+	depends on I2C
+	help
+	  This enables support for Synaptics s1302 RMI over I2C based touch key.
 endif

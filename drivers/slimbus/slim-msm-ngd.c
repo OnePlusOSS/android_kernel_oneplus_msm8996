@@ -28,6 +28,8 @@
 #include <linux/msm-sps.h>
 #include "slim-msm.h"
 
+#include <sound/sounddebug.h>
+
 #define NGD_SLIM_NAME	"ngd_msm_ctrl"
 #define SLIM_LA_MGR	0xFF
 #define SLIM_ROOT_FREQ	24576000
@@ -1270,10 +1272,9 @@ static int ngd_slim_power_up(struct msm_slim_ctrl *dev, bool mdm_restart)
 
 	/* reconnect BAM pipes if needed and enable NGD */
 	ngd_slim_setup(dev);
-
-	timeout = wait_for_completion_timeout(&dev->reconf, HZ);
+    timeout = wait_for_completion_timeout(&dev->reconf, 3 * HZ);
 	if (!timeout) {
-		SLIM_WARN(dev, "capability exchange timed-out\n");
+		SLIM_ERR(dev, "capability exchange timed-out\n");
 		return -ETIMEDOUT;
 	}
 	/* mutliple transactions waiting on slimbus to power up? */

@@ -1276,6 +1276,7 @@ extern void check_for_migration(struct rq *rq, struct task_struct *p);
 extern void pre_big_task_count_change(const struct cpumask *cpus);
 extern void post_big_task_count_change(const struct cpumask *cpus);
 extern void set_hmp_defaults(void);
+extern unsigned int power_cost_at_freq(int cpu, unsigned int freq);
 extern int power_delta_exceeded(unsigned int cpu_cost, unsigned int base_cost);
 extern unsigned int power_cost(int cpu, u64 demand);
 extern void reset_all_window_stats(u64 window_start, unsigned int window_size);
@@ -1293,6 +1294,8 @@ static inline void post_big_task_count_change(void) { }
 static inline void set_hmp_defaults(void) { }
 
 static inline void clear_reserved(int cpu) { }
+
+#define power_cost_at_freq(...) 0
 
 #define power_cost(...) 0
 

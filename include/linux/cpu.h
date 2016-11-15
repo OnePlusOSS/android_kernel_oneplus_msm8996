@@ -272,8 +272,14 @@ static inline void enable_nonboot_cpus(void) {}
 #endif /* !CONFIG_PM_SLEEP_SMP */
 
 struct cpu_pwr_stats *get_cpu_pwr_stats(void);
+long get_cpu_temp(int cpu);
 void trigger_cpu_pwr_stats_calc(void);
 int register_cpu_pwr_stats_ready_notifier(struct notifier_block *nb);
+
+unsigned int power_cost_at_freq_at_temp(
+	unsigned int cpu,
+	unsigned int freq,
+	long temp);
 
 enum cpuhp_state {
 	CPUHP_OFFLINE,

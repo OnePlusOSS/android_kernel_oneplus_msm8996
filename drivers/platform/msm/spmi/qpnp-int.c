@@ -28,6 +28,8 @@
 #include <linux/printk.h>
 #include <linux/ratelimit.h>
 #include <linux/irqchip/qpnp-int.h>
+#include <linux/sched.h>
+#include <linux/wakeup_reason.h>
 
 #include <asm/irq.h>
 
@@ -638,9 +640,13 @@ static int __qpnpint_handle_irq(struct spmi_controller *spmi_ctrl,
 			name = "stray irq";
 		else if (desc->action && desc->action->name)
 			name = desc->action->name;
-
+		log_wakeup_reason(irq);
 		pr_warn("%d triggered [0x%01x, 0x%02x,0x%01x] %s\n",
 				irq, spec->slave, spec->per, spec->irq, name);
+		if(strstr(name, "qpnp_kpdpwr_status") != NULL)//qpnp_kpdpwr_status
+	    {
+		    sched_set_boost(1);//wujialong 20160314,enable sched_boost when powerkey wakeup
+	    }
 	} else {
 		generic_handle_irq(irq);
 	}

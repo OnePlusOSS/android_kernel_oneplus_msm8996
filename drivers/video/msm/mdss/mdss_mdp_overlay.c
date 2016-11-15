@@ -4114,24 +4114,24 @@ static ssize_t mdss_mdp_cmd_autorefresh_store(struct device *dev,
 		pr_err("kstrtoint failed. rc=%d\n", rc);
 		return rc;
 	}
-
-	rc = mdss_mdp_ctl_cmd_set_autorefresh(ctl, frame_cnt);
-	if (rc) {
-		pr_err("cmd_set_autorefresh failed, rc=%d, frame_cnt=%d\n",
-			rc, frame_cnt);
-		return rc;
+	else if(frame_cnt != ctl->autorefresh_frame_cnt){
+		rc = mdss_mdp_ctl_cmd_set_autorefresh(ctl, frame_cnt);
+		if (rc) {
+			pr_err("cmd_set_autorefresh failed, rc=%d, frame_cnt=%d\n",
+				rc, frame_cnt);
+			return rc;
+		}
+		if (frame_cnt) {
+			/* enable/reconfig autorefresh */
+			mfd->mdp_sync_pt_data.threshold = 2;
+			mfd->mdp_sync_pt_data.retire_threshold = 0;
+		} else {
+			/* disable autorefresh */
+			mfd->mdp_sync_pt_data.threshold = 1;
+			mfd->mdp_sync_pt_data.retire_threshold = 1;
+		}
+		ctl->autorefresh_frame_cnt = frame_cnt;
 	}
-
-	if (frame_cnt) {
-		/* enable/reconfig autorefresh */
-		mfd->mdp_sync_pt_data.threshold = 2;
-		mfd->mdp_sync_pt_data.retire_threshold = 0;
-	} else {
-		/* disable autorefresh */
-		mfd->mdp_sync_pt_data.threshold = 1;
-		mfd->mdp_sync_pt_data.retire_threshold = 1;
-	}
-
 	pr_debug("setting cmd autorefresh to cnt=%d\n", frame_cnt);
 
 	return len;

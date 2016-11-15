@@ -1167,6 +1167,197 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	return ret;
 }
 
+extern void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
+			struct dsi_panel_cmds *pcmds, u32 flags);
+
+u32 mdss_oem_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl,
+		struct dsi_panel_cmds *pcmds, int read_size)
+{
+	struct dcs_cmd_req cmdreq;
+	struct mdss_panel_info *pinfo;
+
+	pinfo = &(ctrl->panel_data.panel_info);
+	if (pinfo->dcs_cmd_by_left) {
+		if (ctrl->ndx != DSI_CTRL_LEFT)
+			return -EINVAL;
+	}
+
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	cmdreq.cmds = pcmds->cmds;
+	cmdreq.cmds_cnt = 1;
+	cmdreq.flags = CMD_REQ_RX | CMD_REQ_COMMIT;
+
+	if (read_size)
+		cmdreq.rlen = read_size;
+	else
+		cmdreq.rlen = pcmds->read_size[0];
+
+	cmdreq.rbuf = ctrl->rx_buf.data;
+	cmdreq.cb = NULL; /* call back */
+	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+	return ctrl->rx_buf.len;
+}
+
+static int oem_nv_read(struct mdss_dsi_ctrl_pdata *ctrl, struct dsi_panel_cmds *cmds, unsigned char *destBuffer)
+{
+	int loop_limit = 0;
+	int read_pos = 0;
+	int read_count = 0;
+	int show_cnt;
+	int i;
+	int j;
+	char show_buffer[256] = {0,};
+	int show_buffer_pos = 0;
+	int read_size = 0;
+	int srcLength = 0;
+	int startoffset = 0;
+	int packet_size = 10; /* mipi limitation */
+	struct dsi_panel_cmds *read_pos_tx_cmds;	
+
+	
+	read_pos_tx_cmds = &ctrl->read_pos_tx_cmds;	
+	pr_debug("%s: ndx=%d cmd_cnt=%d\n", __func__,
+					ctrl->ndx, read_pos_tx_cmds->cmd_cnt);
+	
+	if (IS_ERR_OR_NULL(ctrl) || IS_ERR_OR_NULL(cmds)) {
+		printk(KERN_ERR"Invalid ctrl data\n");
+		return -EINVAL;
+	}
+ 	show_cnt = 0;
+
+	srcLength = cmds->read_size[0];
+	startoffset = read_pos = cmds->read_startoffset[0];
+
+	show_buffer_pos += snprintf(show_buffer, sizeof(show_buffer), "read_reg : %X[%d] : ", cmds->cmds->payload[0], srcLength);
+
+	loop_limit = (srcLength + packet_size - 1) / packet_size;
+		for (j = 0; j < loop_limit; j++) {
+		read_pos_tx_cmds->cmds->payload[1] = read_pos;	
+		read_size = ((srcLength - read_pos + startoffset) < packet_size) ?
+						(srcLength - read_pos + startoffset) : packet_size;
+
+		  if (read_pos_tx_cmds->cmd_cnt)
+		  mdss_dsi_panel_cmds_send(ctrl, read_pos_tx_cmds, CMD_REQ_COMMIT);
+		  read_count = mdss_oem_panel_cmd_read(ctrl, cmds, read_size);
+		  
+
+	#if 1	  
+		  pr_err("rx_buf.data[0]=%x\n",ctrl->rx_buf.data[0]);
+		  pr_err("rx_buf.data[1]=%x\n",ctrl->rx_buf.data[1]);
+		  pr_err("rx_buf.data[2]=%x\n",ctrl->rx_buf.data[2]);
+		  pr_err("rx_buf.data[3]=%x\n",ctrl->rx_buf.data[3]);
+		  pr_err("rx_buf.data[4]=%x\n",ctrl->rx_buf.data[4]);
+		  pr_err("rx_buf.data[5]=%x\n",ctrl->rx_buf.data[5]);
+		  pr_err("rx_buf.data[6]=%x\n",ctrl->rx_buf.data[6]);
+		  pr_err("rx_buf.data[7]=%x\n",ctrl->rx_buf.data[7]);		  
+		  pr_err("rx_buf.data[8]=%x\n",ctrl->rx_buf.data[8]);
+		  pr_err("rx_buf.data[9]=%x\n",ctrl->rx_buf.data[9]);
+
+       #endif
+		  for (i = 0; i < read_count; i++, show_cnt++) {
+					  show_buffer_pos += snprintf(show_buffer + show_buffer_pos, sizeof(show_buffer)-show_buffer_pos, "%02x ",
+							  ctrl->rx_buf.data[i]);
+					  if (destBuffer != NULL && show_cnt < srcLength) {
+							  destBuffer[show_cnt] =
+							  ctrl->rx_buf.data[i];
+					  }
+				  }
+		
+				  show_buffer_pos += snprintf(show_buffer + show_buffer_pos, sizeof(show_buffer)-show_buffer_pos, ".");
+				  read_pos += read_count;
+				  if (read_pos-startoffset >= srcLength)
+					  break;
+
+			}
+
+	return read_pos-startoffset;
+}
+
+
+static int mdss_oem_read_nv_mem(struct mdss_dsi_ctrl_pdata *ctrl, struct dsi_panel_cmds *cmds, unsigned char *buffer)
+{
+	int nv_read_cnt = 0;
+
+	struct dsi_panel_cmds *read_reg_enable;
+	struct dsi_panel_cmds *read_reg_disable;
+	
+	read_reg_enable = &ctrl->read_reg_enable;
+	read_reg_disable = &ctrl->read_reg_disable;
+	
+	pr_debug("%s: ndx=%d cmd_cnt=%d\n", __func__,
+					ctrl->ndx, read_reg_enable->cmd_cnt);
+	pr_debug("%s: ndx=%d cmd_cnt=%d\n", __func__,
+					ctrl->ndx, read_reg_disable->cmd_cnt);
+
+	if (read_reg_enable->cmd_cnt)
+	mdss_dsi_panel_cmds_send(ctrl, read_reg_enable, CMD_REQ_COMMIT);
+
+	nv_read_cnt = oem_nv_read(ctrl, cmds, buffer);
+
+     	if (read_reg_disable->cmd_cnt)
+	mdss_dsi_panel_cmds_send(ctrl, read_reg_disable, CMD_REQ_COMMIT);
+
+
+	return nv_read_cnt;
+}
+
+
+
+void mdss_oem_panel_data_read(struct mdss_dsi_ctrl_pdata *ctrl, struct dsi_panel_cmds *cmds, char *buffer)
+{
+	if (!ctrl) {
+		printk(KERN_ERR"Invalid ctrl data\n");
+		return;
+	}
+
+	if (!cmds->cmd_cnt) {
+		printk(KERN_ERR"cmds_count is zero..\n");
+		return;
+	}
+	mdss_oem_read_nv_mem(ctrl, cmds, buffer);
+}
+
+ int mdss_oem_read_reg(struct mdss_dsi_ctrl_pdata *ctrl, struct dsi_panel_cmds *cmds)
+{
+
+	int ret = 0;
+	unsigned char data[10];	
+	mdss_oem_panel_data_read(ctrl, cmds, data);
+	return ret;
+}
+
+#if 0
+ static void oem_print_cmd_desc(struct mdss_dsi_ctrl_pdata *ctrl,
+		 struct dsi_cmd_desc *cmds, int cnt)
+ {
+ 
+	 char buf[1024];
+	 int len;
+	 int i,j;
+ 
+	 if (IS_ERR_OR_NULL(ctrl))
+		 return;
+ 
+	 for (j=0; j < cnt; j++) {
+		 len = 0;
+		 len += sprintf(buf, "%02x ", cmds[j].dchdr.dtype);
+		 len += sprintf(buf + len, "%02x ", cmds[j].dchdr.last);
+		 len += sprintf(buf + len, "%02x ", cmds[j].dchdr.vc);
+		 len += sprintf(buf + len, "%02x ", cmds[j].dchdr.ack);
+		 len += sprintf(buf + len, "%02x ", cmds[j].dchdr.wait);
+		 len += sprintf(buf + len, "%02x ", cmds[j].dchdr.dlen);
+ 
+		 for (i = 0; i < cmds[j].dchdr.dlen; i++)
+			 len += sprintf(buf + len, "%02x ", cmds[j].payload[i]);
+ 
+		 printk(KERN_ERR"Send the mipi command	(%02d) %s\n", j, buf);
+	 }
+ 
+	 return;
+ }
+ #endif
+ 
+
 void mdss_dsi_dsc_config(struct mdss_dsi_ctrl_pdata *ctrl, struct dsc_desc *dsc)
 {
 	u32 data, offset;
@@ -2428,7 +2619,6 @@ int mdss_dsi_cmdlist_rx(struct mdss_dsi_ctrl_pdata *ctrl,
 		rp = &ctrl->rx_buf;
 		len = mdss_dsi_cmds_rx(ctrl, req->cmds, req->rlen,
 				(req->flags & CMD_REQ_DMA_TPG));
-		memcpy(req->rbuf, rp->data, rp->len);
 		ctrl->rx_len = len;
 	} else {
 		pr_err("%s: No rx buffer provided\n", __func__);
@@ -2439,6 +2629,7 @@ int mdss_dsi_cmdlist_rx(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	return len;
 }
+
 
 int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 {

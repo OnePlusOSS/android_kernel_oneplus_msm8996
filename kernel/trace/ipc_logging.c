@@ -28,6 +28,7 @@
 #include <linux/delay.h>
 #include <linux/completion.h>
 #include <linux/ipc_logging.h>
+#include <linux/rtc.h>
 
 #include "ipc_logging_private.h"
 
@@ -411,12 +412,16 @@ static inline int tsv_write_header(struct encode_context *ectxt,
 int tsv_timestamp_write(struct encode_context *ectxt)
 {
 	int ret;
-	uint64_t t_now = sched_clock();
+    struct timespec64 tspec;
+    ret = tsv_write_header(ectxt, TSV_TYPE_TIMESTAMP, sizeof(tspec));
+    if (ret)
+        return ret;
 
-	ret = tsv_write_header(ectxt, TSV_TYPE_TIMESTAMP, sizeof(t_now));
-	if (ret)
-		return ret;
-	return tsv_write_data(ectxt, &t_now, sizeof(t_now));
+    __getnstimeofday64(&tspec);
+    /*utc + timezone add by huoyinghui@160425*/
+    tspec.tv_sec -= sys_tz.tz_minuteswest * 60;
+
+    return tsv_write_data(ectxt, &tspec, sizeof(tspec));
 }
 EXPORT_SYMBOL(tsv_timestamp_write);
 
@@ -611,15 +616,16 @@ void tsv_timestamp_read(struct encode_context *ectxt,
 			struct decode_context *dctxt, const char *format)
 {
 	struct tsv_header hdr;
-	uint64_t val;
-	unsigned long nanosec_rem;
+    struct rtc_time tm;
+    struct timespec64 tspec;
 
-	tsv_read_header(ectxt, &hdr);
-	BUG_ON(hdr.type != TSV_TYPE_TIMESTAMP);
-	tsv_read_data(ectxt, &val, sizeof(val));
-	nanosec_rem = do_div(val, 1000000000U);
-	IPC_SPRINTF_DECODE(dctxt, "[%6u.%09lu%s/",
-			(unsigned)val, nanosec_rem, format);
+    tsv_read_header(ectxt, &hdr);
+    BUG_ON(hdr.type != TSV_TYPE_TIMESTAMP);
+    tsv_read_data(ectxt, &tspec, sizeof(tspec));
+    rtc_time_to_tm(tspec.tv_sec, &tm);
+    IPC_SPRINTF_DECODE(dctxt, "[%02d%02d%02d_%02d:%02d:%02d.%06ld]",
+                    tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,tm.tm_hour, tm.tm_min, tm.tm_sec,
+                    tspec.tv_nsec / 1000);
 }
 EXPORT_SYMBOL(tsv_timestamp_read);
 

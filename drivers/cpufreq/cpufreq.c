@@ -30,6 +30,8 @@
 #include <linux/tick.h>
 #include <trace/events/power.h>
 
+#include "../oneplus/coretech/crpl_helper.h"
+
 /**
  * The "cpufreq driver" - the arch- or hardware-dependent low
  * level driver of CPUFreq support, and its spinlock. This lock
@@ -334,6 +336,8 @@ static void __cpufreq_notify_transition(struct cpufreq_policy *policy,
 		trace_cpu_frequency(freqs->new, freqs->cpu);
 		srcu_notifier_call_chain(&cpufreq_transition_notifier_list,
 				CPUFREQ_POSTCHANGE, freqs);
+		if (likely(policy) && likely(policy->cpu == freqs->cpu))
+			ctech_crpl_hook_calculate_saved_energy(policy->cpu);
 		if (likely(policy) && likely(policy->cpu == freqs->cpu))
 			policy->cur = freqs->new;
 		break;

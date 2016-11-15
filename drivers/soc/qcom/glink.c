@@ -2980,6 +2980,11 @@ int glink_rx_done(void *handle, const void *ptr, bool reuse)
 	uint32_t id;
 	int ret = 0;
 
+	if (IS_ERR_OR_NULL(ctx)) {
+		GLINK_ERR_CH(ctx, "%s: Invalid channel_ctx ptr %p\n", 	__func__, ptr);
+		return -EINVAL;
+	}
+
 	liid_ptr = ch_get_local_rx_intent_notified(ctx, ptr);
 
 	if (IS_ERR_OR_NULL(liid_ptr)) {

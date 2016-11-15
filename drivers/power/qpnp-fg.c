@@ -35,6 +35,7 @@
 #include <linux/string_helpers.h>
 #include <linux/alarmtimer.h>
 #include <linux/qpnp/qpnp-revid.h>
+#include "oem_external_fg.h"
 
 /* Register offsets */
 
@@ -314,7 +315,7 @@ module_param_named(
 	debug_mask, fg_debug_mask, int, S_IRUSR | S_IWUSR
 );
 
-static int fg_reset_on_lockup;
+static int fg_reset_on_lockup = 1;
 
 static int fg_sense_type = -EINVAL;
 static int fg_restart;
@@ -414,6 +415,26 @@ struct fg_wakeup_source {
 	struct wakeup_source	source;
 	unsigned long		enabled;
 };
+
+static struct external_battery_gauge *external_fg = NULL;
+
+void external_battery_gauge_register(struct external_battery_gauge *batt_gauge)
+{
+	if (external_fg) {
+		external_fg = batt_gauge;
+		pr_err("qpnp-charger %s multiple battery gauge called\n",
+								__func__);
+	} else {
+		external_fg = batt_gauge;
+	}
+}
+EXPORT_SYMBOL(external_battery_gauge_register);
+
+void external_battery_gauge_unregister(struct external_battery_gauge *batt_gauge)
+{
+	external_fg = NULL;
+}
+EXPORT_SYMBOL(external_battery_gauge_unregister);
 
 static void fg_stay_awake(struct fg_wakeup_source *source)
 {
@@ -566,6 +587,8 @@ struct fg_chip {
 	bool			batt_cold;
 	int			cold_hysteresis;
 	int			hot_hysteresis;
+	bool			use_external_fg;
+	bool			battery_4p4v_present;
 	/* ESR pulse tuning */
 	struct fg_wakeup_source	esr_extract_wakeup_source;
 	struct work_struct	esr_extract_config_work;
@@ -621,6 +644,7 @@ static const mode_t DFS_MODE = S_IRUSR | S_IWUSR;
 static const char *default_batt_type	= "Unknown Battery";
 static const char *loading_batt_type	= "Loading Battery Data";
 static const char *missing_batt_type	= "Disconnected Battery";
+static const char *four_p_four_v_batt_type	= "itech_3400mAH";
 
 /* Log buffer */
 struct fg_log_buffer {
@@ -1302,8 +1326,6 @@ static void fg_enable_irqs(struct fg_chip *chip, bool enable)
 	if (enable) {
 		enable_irq(chip->soc_irq[DELTA_SOC].irq);
 		enable_irq_wake(chip->soc_irq[DELTA_SOC].irq);
-		enable_irq(chip->soc_irq[FULL_SOC].irq);
-		enable_irq_wake(chip->soc_irq[FULL_SOC].irq);
 		enable_irq(chip->batt_irq[BATT_MISSING].irq);
 		if (!chip->vbat_low_irq_enabled) {
 			enable_irq(chip->batt_irq[VBATT_LOW].irq);
@@ -1318,8 +1340,6 @@ static void fg_enable_irqs(struct fg_chip *chip, bool enable)
 	} else {
 		disable_irq_wake(chip->soc_irq[DELTA_SOC].irq);
 		disable_irq_nosync(chip->soc_irq[DELTA_SOC].irq);
-		disable_irq_wake(chip->soc_irq[FULL_SOC].irq);
-		disable_irq_nosync(chip->soc_irq[FULL_SOC].irq);
 		disable_irq(chip->batt_irq[BATT_MISSING].irq);
 		if (chip->vbat_low_irq_enabled) {
 			disable_irq_wake(chip->batt_irq[VBATT_LOW].irq);
@@ -3215,7 +3235,7 @@ static enum power_supply_property fg_power_props[] = {
 	POWER_SUPPLY_PROP_CYCLE_COUNT_ID,
 	POWER_SUPPLY_PROP_HI_POWER,
 };
-
+	#define DEFALUT_BATT_TEMP 250
 static int fg_power_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
 				       union power_supply_propval *val)
@@ -3229,11 +3249,19 @@ static int fg_power_get_property(struct power_supply *psy,
 			val->strval = missing_batt_type;
 		else if (chip->fg_restarting)
 			val->strval = loading_batt_type;
+		else if (chip->battery_4p4v_present)
+			val->strval = four_p_four_v_batt_type;
 		else
 			val->strval = chip->batt_type;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
-		val->intval = get_prop_capacity(chip);
+		if (chip->use_external_fg && external_fg
+				&& external_fg->get_battery_soc)
+			val->intval = external_fg->get_battery_soc();
+		else if(get_extern_fg_regist_done() == false)
+			val->intval = get_prop_pre_shutdown_soc();
+		else
+			val->intval = 50;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_RAW:
 		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_SOC);
@@ -3242,10 +3270,18 @@ static int fg_power_get_property(struct power_supply *psy,
 		val->intval = get_sram_prop_now(chip, FG_DATA_VINT_ERR);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
-		val->intval = get_sram_prop_now(chip, FG_DATA_CURRENT);
+		if (chip->use_external_fg && external_fg
+				&& external_fg->get_average_current)
+			val->intval = external_fg->get_average_current();
+		else
+			val->intval = 0;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		val->intval = get_sram_prop_now(chip, FG_DATA_VOLTAGE);
+		if (chip->use_external_fg && external_fg
+				&& external_fg->get_battery_mvolts)
+			val->intval = external_fg->get_battery_mvolts();
+		else
+			val->intval = 4000000;//4000mV
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_OCV:
 		val->intval = get_sram_prop_now(chip, FG_DATA_OCV);
@@ -3254,7 +3290,13 @@ static int fg_power_get_property(struct power_supply *psy,
 		val->intval = chip->batt_max_voltage_uv;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_TEMP);
+		if (chip->use_external_fg && external_fg
+				&& external_fg->get_battery_temperature)
+			val->intval = external_fg->get_battery_temperature();
+		else if (get_extern_fg_regist_done() == false)
+			val->intval = DEFALUT_BATT_TEMP;
+		else
+			val->intval = -400;
 		break;
 	case POWER_SUPPLY_PROP_COOL_TEMP:
 		val->intval = get_prop_jeita_temp(chip, FG_MEM_SOFT_COLD);
@@ -3276,6 +3318,7 @@ static int fg_power_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_RESISTANCE_ID:
 		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_ID);
+		val->intval = 100000; /* use default battery param now */
 		break;
 	case POWER_SUPPLY_PROP_UPDATE_NOW:
 		val->intval = 0;
@@ -4226,6 +4269,10 @@ static int fg_init_batt_temp_state(struct fg_chip *chip)
 	return rc;
 }
 
+static void oem_update_cc_cv_setpoint(struct fg_chip *chip,int cv_float_point);
+static void oneplus_set_allow_read_iic(struct fg_chip *chip,bool status);
+static void oneplus_set_lcd_off_status(struct fg_chip *chip,bool status);
+
 static int fg_power_set_property(struct power_supply *psy,
 				  enum power_supply_property psp,
 				  const union power_supply_propval *val)
@@ -4260,8 +4307,24 @@ static int fg_power_set_property(struct power_supply *psy,
 		if (chip->jeita_hysteresis_support)
 			fg_hysteresis_config(chip);
 		break;
+	case POWER_SUPPLY_PROP_CC_TO_CV_POINT:
+		oem_update_cc_cv_setpoint(chip,val->intval);
+		break;
+	case POWER_SUPPLY_PROP_SET_ALLOW_READ_EXTERN_FG_IIC:
+		oneplus_set_allow_read_iic(chip,val->intval);
+		break;
+	case POWER_SUPPLY_PROP_UPDATE_LCD_IS_OFF:
+		oneplus_set_lcd_off_status(chip,val->intval);
+		break;
+	case POWER_SUPPLY_PROP_BATTERY_4P4V_PRESENT:
+		chip->battery_4p4v_present = val->intval;
+		break;
 	case POWER_SUPPLY_PROP_CHARGE_DONE:
 		chip->charge_done = val->intval;
+		pr_info("qpnp_fg:charge_done:soc:%d,VOLT:%d,current:%d\n",
+			get_prop_capacity(chip),
+			get_sram_prop_now(chip, FG_DATA_VOLTAGE),
+			get_sram_prop_now(chip, FG_DATA_CURRENT));
 		if (!chip->resume_soc_lowered) {
 			fg_stay_awake(&chip->resume_soc_wakeup_source);
 			schedule_work(&chip->set_resume_soc_work);
@@ -5202,6 +5265,44 @@ static void update_cc_cv_setpoint(struct fg_chip *chip)
 			tmp[0], tmp[1], CC_CV_SETPOINT_REG);
 }
 
+static void oem_update_cc_cv_setpoint(struct fg_chip *chip,int cv_float_point)
+{
+	int rc;
+	u8 tmp[2];
+
+	if (!cv_float_point)
+		return;
+	batt_to_setpoint_adc(cv_float_point, tmp);
+	rc = fg_mem_write(chip, tmp, CC_CV_SETPOINT_REG, 2,
+				CC_CV_SETPOINT_OFFSET, 0);
+	if (rc) {
+		pr_err("failed to write CC_CV_VOLT rc=%d\n", rc);
+		return;
+	}
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("oem Wrote %x %x to address %x for CC_CV setpoint\n",
+			tmp[0], tmp[1], CC_CV_SETPOINT_REG);
+}
+
+static void oneplus_set_allow_read_iic(struct fg_chip *chip,bool status)
+{
+	if (chip->use_external_fg && external_fg
+			&& external_fg->set_alow_reading)
+		external_fg->set_alow_reading(status);
+	else
+		pr_info("set allow read extern fg iic fail\n");
+}
+
+static void oneplus_set_lcd_off_status(struct fg_chip *chip,bool status)
+{
+	if (chip->use_external_fg && external_fg
+			&& external_fg->set_lcd_off_status)
+		external_fg->set_lcd_off_status(status);
+	else
+		pr_info("set lcd off status fail\n");
+}
+
+
 #define CBITS_INPUT_FILTER_REG		0x4B4
 #define CBITS_RMEAS1_OFFSET		1
 #define CBITS_RMEAS2_OFFSET		2
@@ -5282,7 +5383,6 @@ static int fg_config_esr_extract(struct fg_chip *chip, bool disable)
 	u8 val;
 
 	if (disable == chip->esr_extract_disabled) {
-		if (fg_debug_mask & FG_STATUS)
 			pr_info("ESR extract already %sabled\n",
 				disable ? "dis" : "en");
 		return 0;
@@ -5316,7 +5416,6 @@ static int fg_config_esr_extract(struct fg_chip *chip, bool disable)
 	}
 
 	chip->esr_extract_disabled = disable;
-	if (fg_debug_mask & FG_STATUS)
 		pr_info("ESR extract is %sabled\n", disable ? "dis" : "en");
 done:
 	fg_mem_release(chip);
@@ -5396,6 +5495,42 @@ static void discharge_gain_work(struct work_struct *work)
 			buf[1]);
 
 	fg_relax(&chip->dischg_gain_wakeup_source);
+}
+static int get_property_from_smb(struct fg_chip *chip,
+		enum power_supply_property prop, int *val)
+{
+	int rc;
+	union power_supply_propval ret = {0, };
+
+	if (!chip->batt_psy && chip->batt_psy_name)
+		chip->batt_psy =
+			power_supply_get_by_name((char *)chip->batt_psy_name);
+	if (!chip->batt_psy) {
+		pr_info("no battery psy found\n");
+		return -EINVAL;
+	}
+
+	rc = chip->batt_psy->get_property(chip->batt_psy, prop, &ret);
+	if (rc) {
+		pr_info("bms psy doesn't support reading prop %d rc = %d\n",
+			prop, rc);
+		return rc;
+	}
+
+	*val = ret.intval;
+	return rc;
+}
+
+static int get_prop_batt_protect_status(struct fg_chip *chip)
+{
+	int status, rc;
+
+	rc = get_property_from_smb(chip, POWER_SUPPLY_PROP_CHG_PROTECT_STATUS, &status);
+	if (rc) {
+		pr_info("Couldn't get bat protect status rc = %d\n", rc);
+		status = 0;
+	}
+	return status;
 }
 
 #define LOW_LATENCY			BIT(6)
@@ -5627,13 +5762,18 @@ try_again:
 
 	/* Enable charging now as the first estimate is done now */
 	if (chip->charging_disabled) {
-		rc = set_prop_enable_charging(chip, true);
-		if (rc)
-			pr_err("Failed to enable charging, rc=%d\n", rc);
-		else
+		rc = get_prop_batt_protect_status(chip);
+		if(!rc){
+			rc = set_prop_enable_charging(chip, true);
+			if (rc)
+				pr_err("Failed to enable charging, rc=%d\n", rc);
+			else
+				chip->charging_disabled = false;
+		}
+		else{
 			chip->charging_disabled = false;
+		}
 	}
-
 	chip->fg_restarting = false;
 
 	if (fg_debug_mask & FG_STATUS)
@@ -6472,6 +6612,7 @@ static int fg_of_init(struct fg_chip *chip)
 		rc = 0;
 	}
 
+	chip->use_external_fg = of_property_read_bool(node, "oem,use_external_fg");
 	chip->bad_batt_detection_en = of_property_read_bool(node,
 				"qcom,bad-battery-detection-enable");
 
@@ -6588,12 +6729,6 @@ static int fg_init_irqs(struct fg_chip *chip)
 
 		switch (subtype) {
 		case FG_SOC:
-			chip->soc_irq[FULL_SOC].irq = spmi_get_irq_byname(
-					chip->spmi, spmi_resource, "full-soc");
-			if (chip->soc_irq[FULL_SOC].irq < 0) {
-				pr_err("Unable to get full-soc irq\n");
-				return rc;
-			}
 			chip->soc_irq[EMPTY_SOC].irq = spmi_get_irq_byname(
 					chip->spmi, spmi_resource, "empty-soc");
 			if (chip->soc_irq[EMPTY_SOC].irq < 0) {
@@ -6613,15 +6748,6 @@ static int fg_init_irqs(struct fg_chip *chip)
 				return rc;
 			}
 
-			rc = devm_request_irq(chip->dev,
-				chip->soc_irq[FULL_SOC].irq,
-				fg_soc_irq_handler, IRQF_TRIGGER_RISING,
-				"full-soc", chip);
-			if (rc < 0) {
-				pr_err("Can't request %d full-soc: %d\n",
-					chip->soc_irq[FULL_SOC].irq, rc);
-				return rc;
-			}
 
 			if (!chip->use_vbat_low_empty_soc) {
 				rc = devm_request_irq(chip->dev,
@@ -6658,7 +6784,6 @@ static int fg_init_irqs(struct fg_chip *chip)
 			}
 
 			enable_irq_wake(chip->soc_irq[DELTA_SOC].irq);
-			enable_irq_wake(chip->soc_irq[FULL_SOC].irq);
 			if (!chip->use_vbat_low_empty_soc)
 				enable_irq_wake(chip->soc_irq[EMPTY_SOC].irq);
 			break;
@@ -7356,6 +7481,9 @@ static int fg_common_hw_init(struct fg_chip *chip)
 	/* Read the cycle counter back from FG SRAM */
 	if (chip->cyc_ctr.en)
 		restore_cycle_counter(chip);
+
+	if (!chip->esr_pulse_tune_en)
+		fg_config_esr_extract(chip, true);
 
 	if (chip->esr_pulse_tune_en) {
 		rc = fg_mem_read(chip, &val, SYS_CFG_1_REG, 1, SYS_CFG_1_OFFSET,

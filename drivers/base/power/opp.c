@@ -378,7 +378,7 @@ struct dev_pm_opp *dev_pm_opp_find_freq_floor(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(dev_pm_opp_find_freq_floor);
 
-static ssize_t opp_table_show(struct device *dev, struct device_attribute *attr,
+static ssize_t op_cpu_table_show(struct device *dev, struct device_attribute *attr,
 			      char *buf)
 {
 	struct dev_pm_opp *opp;
@@ -399,7 +399,7 @@ static ssize_t opp_table_show(struct device *dev, struct device_attribute *attr,
 
 	return count;
 }
-static DEVICE_ATTR_RO(opp_table);
+static DEVICE_ATTR_RO(op_cpu_table);
 
 /**
  * dev_pm_opp_add()  - Add an OPP table from a table definitions
@@ -472,8 +472,8 @@ int dev_pm_opp_add(struct device *dev, unsigned long freq, unsigned long u_volt)
 		list_add_rcu(&dev_opp->node, &dev_opp_list);
 		head = &dev_opp->opp_list;
 		/*  attribute here */
-		WARN(device_create_file(dev, &dev_attr_opp_table),
-		     "Unable to add opp_table device attribute.\n");
+		WARN(device_create_file(dev, &dev_attr_op_cpu_table),
+		     "Unable to add op_cpu_table device attribute.\n");
 		goto list_add;
 	}
 

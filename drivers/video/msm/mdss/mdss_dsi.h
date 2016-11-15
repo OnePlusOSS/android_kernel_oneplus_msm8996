@@ -325,6 +325,8 @@ struct dsi_panel_cmds {
 	struct dsi_cmd_desc *cmds;
 	int cmd_cnt;
 	int link_state;
+	char *read_size;
+	char *read_startoffset;
 };
 
 struct dsi_panel_timing {
@@ -520,10 +522,35 @@ struct mdss_dsi_ctrl_pdata {
 	void *mdp_clk_handle;
 	int m_dsi_vote_cnt;
 	int m_mdp_vote_cnt;
-	/* debugfs structure */
 	struct mdss_dsi_debugfs_info *debugfs_info;
-
+	int lcd_power_1v8_en; 
+	int esd_te_gpio;
+	struct delayed_work techeck_work;
+	struct completion te_comp;
+	int acl_mode;
+	struct dsi_panel_cmds acl_cmds;
+	int acl_ncmds;
+	int acl_npayload;
 	struct dsi_err_container err_cont;
+	int  max_brightness_level;
+	char high_brightness_panel;
+	struct dsi_panel_cmds hbm_on_cmds;
+	struct dsi_panel_cmds hbm_off_cmds;
+
+	int  SRGB_mode;
+	int SRGB_first_on;
+	struct dsi_panel_cmds srgb_on_cmds;
+	struct dsi_panel_cmds srgb_off_cmds;
+
+		int  Adobe_RGB_mode;
+		int Adobe_RGB_first_on;
+		struct dsi_panel_cmds Adobe_RGB_on_cmds;
+		struct dsi_panel_cmds Adobe_RGB_off_cmds;
+
+		int  dci_p3_mode;
+		int dci_p3_first_on;
+		struct dsi_panel_cmds dci_p3_on_cmds;
+		struct dsi_panel_cmds dci_p3_off_cmds;
 
 
 	bool ds_registered;
@@ -537,6 +564,11 @@ struct mdss_dsi_ctrl_pdata {
 	bool update_phy_timing; /* flag to recalculate PHY timings */
 
 	bool phy_power_off;
+	struct dsi_panel_cmds read_reg_enable;
+	struct dsi_panel_cmds packet_size_tx_cmds;
+	struct dsi_panel_cmds read_pos_tx_cmds;
+	struct dsi_panel_cmds read_reg_disable;
+	struct dsi_panel_cmds read_manufacture_cmds;
 };
 
 struct dsi_status_data {
@@ -650,6 +682,17 @@ void mdss_dsi_dsc_config(struct mdss_dsi_ctrl_pdata *ctrl,
 	struct dsc_desc *dsc);
 void mdss_dsi_dfps_config_8996(struct mdss_dsi_ctrl_pdata *ctrl);
 void mdss_dsi_set_burst_mode(struct mdss_dsi_ctrl_pdata *ctrl);
+int mdss_dsi_panel_set_acl(struct mdss_dsi_ctrl_pdata *ctrl, int mode);
+void mdss_dsi_panel_set_max_brightness(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_get_max_brightness(struct mdss_dsi_ctrl_pdata *ctrl);
+int mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_get_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl);
+int mdss_dsi_panel_set_adobe_rgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_get_adobe_rgb_mode(struct mdss_dsi_ctrl_pdata *ctrl);
+int mdss_dsi_panel_set_dci_p3_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_get_dci_p3_mode(struct mdss_dsi_ctrl_pdata *ctrl);
+
+
 
 static inline const char *__mdss_dsi_pm_name(enum dsi_pm_type module)
 {

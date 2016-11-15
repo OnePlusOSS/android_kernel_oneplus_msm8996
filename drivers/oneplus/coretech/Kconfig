@@ -1,0 +1,3 @@
+config CRPL_HELPER
+	default y
+	bool "Oneplus CoreTech helper, used for crpl module"

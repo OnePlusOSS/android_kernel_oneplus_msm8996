@@ -1,0 +1,18 @@
+config OEM_DEBUG_SUPORT
+        bool
+        default y
+
+config OEM_TRACE_SUPORT
+	default y
+	depends on OEM_DEBUG_SUPORT
+	bool "OEM debug function, enable it will register the device, which under /dev/otracer."
+
+config OP_GPL_HELPER
+	default y
+	bool "Oneplus CoreTech helper, wrapper for exporting GPL SYMBOL"
+
+config OP_STRUCT_OFFSET_HELPER
+	default y
+	bool "Oneplus CoreTech helper, used for struct member dereference"
+
+source "drivers/oneplus/coretech/Kconfig"

@@ -1,0 +1,59 @@
+			OnePlus Helper
+			=========
+
+Folder tree
+-----------
+drivers/oneplus/
+    oneplus helper functions (GPL/struct offset)
+drivers/oneplus/coretech/
+    oneplus coretech proprietary herlper functions
+
+
+GPL WRAPPER
+-----------
+export GPL SYMBOL to external source.
+sample:
+Assume test_gpl is kernel function which is expoert as EXPORT_GPL.
+file: op_gpl_helper.c
+    int test(int a)
+    {
+        return test_gpl(a);
+    }
+    EXPORT_SYMBOL(test);
+file: op_gpl_helper.h
+    extern int test(int a);
+
+
+STRUCT OFFSET HELPER FUNCTION
+-----------------------------
+deference struct member with proper offset.
+sample:
+Assume you have to use structure test`s member b and c.
+    struct_test{
+        int a;
+        int b;
+        int c;
+        int d;
+    };
+file: op_struct_offset_helper.c
+    int _test[__TEST_MAX] = {
+        [TEST_B] = offsetof(struct test, b);
+        [TEST_C] = offsetof(struct test, c);
+    };
+    gen_type_offset_impl(test);
+
+file: op_struct_offset_helper.h
+    enum {
+        TEST_B,
+        TEST_C,
+
+        __TEST_MAX
+    };
+    #define TEST_B_R(p) (*(int*) ((char *)p + get_test_offset(TEST_B)))
+    #define TEST_C_R(p) (*(int*) ((char *)p + get_test_offset(TEST_C)))
+    gen_type_offset(test);
+
+
+ONEPLUS CORETECH PROPRIETARY
+----------------------
+coretech hook helper function

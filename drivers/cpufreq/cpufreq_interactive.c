@@ -31,6 +31,8 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 
+#include "../oneplus/coretech/crpl_helper.h"
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/cpufreq_interactive.h>
 
@@ -504,7 +506,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 			loadadjfreq = tmploadadjfreq;
 			max_cpu = i;
 		}
-		cpu_load = tmploadadjfreq / ppol->target_freq;
+		cpu_load = tmploadadjfreq / ppol->policy->cur;
 		trace_cpufreq_interactive_cpuload(i, cpu_load, new_load_pct);
 
 		if (cpu_load >= tunables->go_hispeed_load &&
@@ -515,7 +517,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	}
 	spin_unlock(&ppol->load_lock);
 
-	cpu_load = loadadjfreq / ppol->target_freq;
+	cpu_load = loadadjfreq / ppol->policy->cur;
 	tunables->boosted = tunables->boost_val || now < tunables->boostpulse_endtime;
 
 	if (now - ppol->max_freq_hyst_start_time <
@@ -643,6 +645,8 @@ rearm:
 		pcpu = &per_cpu(cpuinfo, i);
 		govinfo.cpu = i;
 		govinfo.load = pcpu->loadadjfreq / ppol->policy->max;
+		ctech_crpl_set_cpuload(govinfo.cpu, govinfo.load);
+		ctech_crpl_set_target_freq(govinfo.cpu, ppol->target_freq);
 		govinfo.sampling_rate_us = tunables->timer_rate;
 		atomic_notifier_call_chain(&cpufreq_govinfo_notifier_list,
 					   CPUFREQ_LOAD_CHANGE, &govinfo);

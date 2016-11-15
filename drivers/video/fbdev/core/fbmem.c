@@ -32,6 +32,7 @@
 #include <linux/device.h>
 #include <linux/efi.h>
 #include <linux/fb.h>
+#include <linux/sched.h>
 
 #include <asm/fb.h>
 
@@ -1052,6 +1053,22 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 }
 EXPORT_SYMBOL(fb_set_var);
 
+void debug_blank(int blank,int start)
+{
+	if(start)
+	{
+		if(blank == FB_BLANK_UNBLANK)
+			printk("blank on start\n");
+		else if(blank == FB_BLANK_POWERDOWN)
+			printk("blank off start\n");
+	}else{
+		if(blank == FB_BLANK_UNBLANK)
+			printk("blank on end\n");
+		else if(blank == FB_BLANK_POWERDOWN)
+			printk("blank off end\n");
+	}
+}
+
 int
 fb_blank(struct fb_info *info, int blank)
 {	
@@ -1064,6 +1081,7 @@ fb_blank(struct fb_info *info, int blank)
 	event.info = info;
 	event.data = &blank;
 
+		debug_blank(blank,1);
 	early_ret = fb_notifier_call_chain(FB_EARLY_EVENT_BLANK, &event);
 
 	if (info->fbops->fb_blank)
@@ -1079,7 +1097,11 @@ fb_blank(struct fb_info *info, int blank)
 		if (!early_ret)
 			fb_notifier_call_chain(FB_R_EARLY_EVENT_BLANK, &event);
 	}
-
+		debug_blank(blank,0);
+    if(blank==FB_BLANK_UNBLANK)
+    {
+        sched_set_boost(0);
+    }
  	return ret;
 }
 EXPORT_SYMBOL(fb_blank);
