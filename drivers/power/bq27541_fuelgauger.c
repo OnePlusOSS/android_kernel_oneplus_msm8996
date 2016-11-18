@@ -150,6 +150,8 @@ struct bq27541_device_info {
 	atomic_t suspended;
 	int temp_pre;
 	int lcd_off_delt_soc;
+	int low_bat_capacity;
+	int low_bat_voltage_uv;
 	bool lcd_is_off;
 	bool alow_reading;
 	bool fastchg_started;
@@ -396,7 +398,6 @@ struct bq27541_device_info *bq27541_di;
 #define CAPACITY_SALTATE_COUNTER_CHARGING_TERM 30 /* 30 1min */
 #define CAPACITY_SALTATE_COUNTER               4
 #define CAPACITY_SALTATE_COUNTER_NOT_CHARGING  24 /* >=40sec */
-#define LOW_BATTERY_PROTECT_VOLTAGE            3350 * 1000
 #define CAPACITY_CALIBRATE_TIME_60_PERCENT     45 /* 45s */
 static int bq27541_average_current(struct bq27541_device_info *di);
 
@@ -578,12 +579,12 @@ static int fg_soc_calibrate(struct  bq27541_device_info *di, int soc)
 				}
 
 				/* avoid dead battery shutdown */
-				if (di->batt_vol_pre <= LOW_BATTERY_PROTECT_VOLTAGE
+				if (di->batt_vol_pre <= di->low_bat_voltage_uv
 						&& di->batt_vol_pre > 2500 * 1000
-						&& di->soc_pre <= 10) {
+						&& di->soc_pre <= di->low_bat_capacity) {
 					/* check again */
 					vbat_mv = bq27541_battery_voltage(di);
-					if (vbat_mv <= LOW_BATTERY_PROTECT_VOLTAGE
+					if (vbat_mv <= di->low_bat_voltage_uv
 							&& vbat_mv > 2500 * 1000) {
 						/* about 9s */
 						counter_temp = CAPACITY_SALTATE_COUNTER - 1;
@@ -620,7 +621,7 @@ static int fg_soc_calibrate(struct  bq27541_device_info *di, int soc)
 		}
 	} else { /* not charging */
 		if ((soc < di->soc_pre)
-				|| (di->batt_vol_pre <= LOW_BATTERY_PROTECT_VOLTAGE
+				|| (di->batt_vol_pre <= di->low_bat_voltage_uv
 				&& di->batt_vol_pre > 2500 * 1000)) {
 			if(di->soc_pre == 100){
 				counter_temp = FIVE_MINUTES;
@@ -636,12 +637,12 @@ static int fg_soc_calibrate(struct  bq27541_device_info *di, int soc)
 			}
 
 			/* avoid dead battery shutdown */
-			if (di->batt_vol_pre <= LOW_BATTERY_PROTECT_VOLTAGE
+			if (di->batt_vol_pre <= di->low_bat_voltage_uv
 					&& di->batt_vol_pre > 2500 * 1000
-					&& di->soc_pre <= 10) {
+					&& di->soc_pre <= di->low_bat_capacity) {
 				/* check again */
 				vbat_mv = bq27541_battery_voltage(di);
-				if (vbat_mv <= LOW_BATTERY_PROTECT_VOLTAGE
+				if (vbat_mv <= di->low_bat_voltage_uv
 						&& vbat_mv > 2500 * 1000 && time_last > 9)
 					counter_temp = 0;
 			}
@@ -652,7 +653,7 @@ static int fg_soc_calibrate(struct  bq27541_device_info *di, int soc)
 
 		if (soc < di->soc_pre)
 			soc_calib = di->soc_pre - 1;
-		else if (di->batt_vol_pre <= LOW_BATTERY_PROTECT_VOLTAGE
+		else if (di->batt_vol_pre <= di->low_bat_voltage_uv
 				&& di->batt_vol_pre > 2500 * 1000
 				&& di->soc_pre > 0 && time_last > 9)
 			soc_calib = di->soc_pre - 1;
@@ -1195,6 +1196,13 @@ static int bq27541_parse_dt(struct bq27541_device_info *di)
 	}
 	if(of_property_read_bool(dev_node, "oem,support-4p4v-battery"))
 		di->support_4p4v_bat = true;
+
+	of_property_read_u32(di->client->dev.of_node,
+				"op,low-bat-voltage-uv",
+				&di->low_bat_voltage_uv);
+	of_property_read_u32(di->client->dev.of_node,
+			"op,low-bat-capacity",
+			&di->low_bat_capacity);
 	return 0;
 }
 

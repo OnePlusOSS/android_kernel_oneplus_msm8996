@@ -58,7 +58,6 @@ static void f2fs_write_end_io(struct bio *bio, int err)
 			f2fs_stop_checkpoint(sbi);
 		}
 		end_page_writeback(page);
-		dec_page_count(sbi, F2FS_WRITEBACK);
 	}
 
 	if (sbi->wait_io) {
@@ -66,7 +65,7 @@ static void f2fs_write_end_io(struct bio *bio, int err)
 		sbi->wait_io = NULL;
 	}
 
-	if (!get_pages(sbi, F2FS_WRITEBACK) &&
+	if (atomic_dec_and_test(&sbi->nr_wb_bios) &&
 			!list_empty(&sbi->cp_wait.task_list))
 		wake_up(&sbi->cp_wait);
 
@@ -92,6 +91,14 @@ static struct bio *__bio_alloc(struct f2fs_sb_info *sbi, block_t blk_addr,
 	return bio;
 }
 
+static inline void __submit_bio(struct f2fs_sb_info *sbi, int rw,
+						struct bio *bio)
+{
+	if (!is_read_io(rw))
+		atomic_inc(&sbi->nr_wb_bios);
+	submit_bio(rw, bio);
+}
+
 static void __submit_merged_bio(struct f2fs_bio_info *io)
 {
 	struct f2fs_io_info *fio = &io->fio;
@@ -105,7 +112,8 @@ static void __submit_merged_bio(struct f2fs_bio_info *io)
 	if (is_read_io(rw)) {
 		trace_f2fs_submit_read_bio(io->sbi->sb, rw,
 						fio->type, io->bio);
-		submit_bio(rw, io->bio);
+		//submit_bio(rw, io->bio);
+		__submit_bio(io->sbi, fio->rw, io->bio);
 	} else {
 		trace_f2fs_submit_write_bio(io->sbi->sb, rw,
 						fio->type, io->bio);
@@ -116,10 +124,12 @@ static void __submit_merged_bio(struct f2fs_bio_info *io)
 		if (fio->type == META_FLUSH) {
 			DECLARE_COMPLETION_ONSTACK(wait);
 			io->sbi->wait_io = &wait;
-			submit_bio(rw, io->bio);
+			//submit_bio(rw, io->bio);
+			__submit_bio(io->sbi, fio->rw, io->bio);
 			wait_for_completion(&wait);
 		} else {
-			submit_bio(rw, io->bio);
+			//submit_bio(rw, io->bio);
+			__submit_bio(io->sbi, fio->rw, io->bio);
 		}
 	}
 
@@ -168,7 +178,9 @@ int f2fs_submit_page_bio(struct f2fs_sb_info *sbi, struct page *page,
 		return -EFAULT;
 	}
 
-	submit_bio(rw, bio);
+	//submit_bio(rw, bio);
+	__submit_bio(sbi, rw, bio);
+	
 	return 0;
 }
 
@@ -185,8 +197,8 @@ void f2fs_submit_page_mbio(struct f2fs_sb_info *sbi, struct page *page,
 
 	down_write(&io->io_rwsem);
 
-	if (!is_read)
-		inc_page_count(sbi, F2FS_WRITEBACK);
+	//if (!is_read)
+		//inc_page_count(sbi, F2FS_WRITEBACK);
 
 	if (io->bio && (io->last_block_in_bio != blk_addr - 1 ||
 						io->fio.rw != fio->rw))

@@ -230,9 +230,8 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 	lower_dir_dentry = lower_parent_path->dentry;
 	lower_dir_mnt = lower_parent_path->mnt;
 
-	/* Use vfs_path_lookup to check if the dentry exists or not */
-	err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name, 0,
-				&lower_path);
+	err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name, LOOKUP_CASE_INSENSITIVE,
+                                &lower_path);
 
 	/* check for other cases */
 	if (err == -ENOENT) {

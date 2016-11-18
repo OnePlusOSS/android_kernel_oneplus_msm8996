@@ -49,6 +49,7 @@
 #define F2FS_MOUNT_FLUSH_MERGE		0x00000200
 #define F2FS_MOUNT_NOBARRIER		0x00000400
 
+#define LOOKUP_CASE_INSENSITIVE	0x8000
 #define clear_opt(sbi, option)	(sbi->mount_opt.opt &= ~F2FS_MOUNT_##option)
 #define set_opt(sbi, option)	(sbi->mount_opt.opt |= F2FS_MOUNT_##option)
 #define test_opt(sbi, option)	(sbi->mount_opt.opt & F2FS_MOUNT_##option)
@@ -65,6 +66,11 @@ typedef u32 nid_t;
 
 struct f2fs_mount_info {
 	unsigned int	opt;
+};
+struct ci_name_buf {
+	char name[F2FS_NAME_LEN+1];
+	f2fs_hash_t name_hash;
+	bool match;
 };
 
 #define CRCPOLY_LE 0xedb88320
@@ -429,7 +435,7 @@ struct f2fs_sm_info {
  * dirty dentry blocks, dirty node blocks, and dirty meta blocks.
  */
 enum count_type {
-	F2FS_WRITEBACK,
+	//F2FS_WRITEBACK,
 	F2FS_DIRTY_DENTS,
 	F2FS_DIRTY_NODES,
 	F2FS_DIRTY_META,
@@ -536,6 +542,7 @@ struct f2fs_sb_info {
 	block_t alloc_valid_block_count;	/* # of allocated blocks */
 	block_t last_valid_block_count;		/* for recovery */
 	u32 s_next_generation;			/* for NFS support */
+	atomic_t nr_wb_bios;			/* # of writeback bios */
 	atomic_t nr_pages[NR_COUNT_TYPE];	/* # of pages, see count_type */
 
 	struct f2fs_mount_info mount_opt;	/* mount options */
@@ -1225,7 +1232,7 @@ struct dentry *f2fs_get_parent(struct dentry *child);
  * dir.c
  */
 struct f2fs_dir_entry *f2fs_find_entry(struct inode *, struct qstr *,
-							struct page **);
+							struct page **, struct ci_name_buf *);
 struct f2fs_dir_entry *f2fs_parent_dir(struct inode *, struct page **);
 ino_t f2fs_inode_by_name(struct inode *, struct qstr *);
 void f2fs_set_link(struct inode *, struct f2fs_dir_entry *,
@@ -1406,7 +1413,7 @@ struct f2fs_stat_info {
 	int ndirty_node, ndirty_dent, ndirty_dirs, ndirty_meta;
 	int nats, sits, fnids;
 	int total_count, utilization;
-	int bg_gc, inline_inode;
+	int bg_gc, inline_inode, wb_bios;
 	unsigned int valid_count, valid_node_count, valid_inode_count;
 	unsigned int bimodal, avg_vblocks;
 	int util_free, util_valid, util_invalid;

@@ -458,6 +458,8 @@
 		status = "ok";
 		compatible = "ti,bq27541-battery";
 		reg = <0x55>;
+		op,low-bat-voltage-uv=<3350000>;
+		op,low-bat-capacity=<10>;
 	};
 	oneplus_fastcg@26{
 		status = "ok";

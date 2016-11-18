@@ -224,8 +224,8 @@
 			qcom,resume-delta-mv = <200>;
 			/* ibatmax setting for different temp regions */
 			qcom,ibatmax-little-cold-ma = <300>;
-			qcom,ibatmax-cool-ma = <500>;
-			qcom,ibatmax-little-cool-ma = <800>;
+			qcom,ibatmax-cool-ma = <400>;
+			qcom,ibatmax-little-cool-ma = <700>;
 			qcom,ibatmax-pre-normal-ma = <1500>;
 			qcom,ibatmax-normal-ma = <1910>;
 			qcom,ibatmax-warm-ma = <800>;

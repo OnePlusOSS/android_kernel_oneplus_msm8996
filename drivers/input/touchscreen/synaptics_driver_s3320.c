@@ -481,7 +481,7 @@ struct synaptics_ts_data {
 	char fw_name[TP_FW_NAME_MAX_LEN];
 	char test_limit_name[TP_FW_NAME_MAX_LEN];
 	char fw_id[12];
-	char manu_name[30];
+	char manu_name[10];
 #ifdef SUPPORT_VIRTUAL_KEY
         struct kobject *properties_kobj;
 #endif
@@ -2164,15 +2164,21 @@ TEST_WITH_CBC_s3508:
 			}
 			if( (y < RX_NUM ) && (x < TX_NUM) ){
 				//printk("%4d ,",baseline_data);
-				if(((baseline_data+60) < *(baseline_data_test+count*2)) || ((baseline_data-60) > *(baseline_data_test+count*2+1))){
-					TPD_ERR("touchpanel failed,RX_NUM:%d,TX_NUM:%d,baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",y,x,baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
-					if((baseline_data <= 0) && (first_check == 0)){
-						first_check = 1;
-						readdata_fail = 1;
+                               if((x == 0) && ((y == RX_NUM-1) || (y == 0) )){
+                                       TPD_ERR("no need test RX_NUM:%d,TX_NUM:%d,baseline_data is %d\n",x,y,baseline_data);
+				}else{
+					if(((baseline_data+60) < *(baseline_data_test+count*2)) || ((baseline_data-60) > *(baseline_data_test+count*2+1))){
+						TPD_ERR("touchpanel failed,RX_NUM:%d,TX_NUM:%d,baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",\
+							y,x,baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
+						if((baseline_data <= 0) && (first_check == 0)){
+							first_check = 1;
+							readdata_fail = 1;
+						}
+						num_read_chars += sprintf(&(buf[num_read_chars]), "0 raw data erro baseline_data[%d][%d]=%d[%d,%d]\n",\
+							x,y,baseline_data,*(baseline_data_test+count*2),*(baseline_data_test+count*2+1));
+						error_count++;
+						goto END;
 					}
-					num_read_chars += sprintf(&(buf[num_read_chars]), "0 raw data erro baseline_data[%d][%d]=%d[%d,%d]\n",x,y,baseline_data,*(baseline_data_test+count*2),	*(baseline_data_test+count*2+1));
-					error_count++;
-					goto END;
 				}
 			}
 			/*
@@ -2521,9 +2527,9 @@ static int synatpitcs_fw_update(struct device *dev, bool force)
 		       }
 		}
 
-	}else if(!strncmp(ts->manu_name,"s3508",5) || !strncmp(ts->manu_name,"15811",5)){
+	}else if(!strncmp(ts->manu_name,"S3508",5) || !strncmp(ts->manu_name,"15811",5) || !strncmp(ts->manu_name,"s3508",5)){
 		        TPD_ERR("enter version 15811 update mode\n");
-			push_component_info(TP, ts->fw_id, "s3508");
+			push_component_info(TP, ts->fw_id, "S3508");
 			ret = request_firmware(&fw, ts->fw_name, dev);
 			if (ret < 0) {
 				TPD_ERR("Request firmware failed - %s (%d)\n",ts->fw_name, ret);
@@ -2579,7 +2585,7 @@ static ssize_t synaptics_update_fw_store(struct device *dev,
 		return size;
 	}
 	if(version_is_s3508){
-		if (strncmp(ts->manu_name,"s3508",5) && strncmp(ts->manu_name,"15811",5)){
+		if (strncmp(ts->manu_name,"S3508",5) && strncmp(ts->manu_name,"15811",5) && strncmp(ts->manu_name,"s3508",5)){
         		TPD_ERR("product name[%s] do not update!\n",ts->manu_name);
         		return size;
    		 }
@@ -3362,7 +3368,7 @@ static int synapitcs_ts_update(struct i2c_client *client, const uint8_t *data, u
 		if (ret){
 			return -1;
 		}
-	}else if(!strncmp(ts->manu_name,"s3508",5) || !strncmp(ts->manu_name,"15811",5)){
+	}else if(!strncmp(ts->manu_name,"S3508",5) || !strncmp(ts->manu_name,"15811",5) || !strncmp(ts->manu_name,"s3508",5)){
 		parse_header(&header,data);
 		if((header.firmware_size + header.config_size + 0x100) > data_len) {
 			TPDTM_DMESG("firmware_size + config_size + 0x100 > data_len data_len = %d \n",data_len);
@@ -3937,8 +3943,7 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 	memset(ts->test_limit_name,TP_FW_NAME_MAX_LEN,0);
 
 	//sprintf(ts->manu_name, "TP_SYNAPTICS");
-	synaptics_rmi4_i2c_read_block(ts->client, F01_RMI_QUERY11,\
-        sizeof(ts->manu_name), ts->manu_name);
+	synaptics_rmi4_i2c_read_block(ts->client, F01_RMI_QUERY11,10, ts->manu_name);
 	if (!strncmp(ts->manu_name,"S3718",5)){
 		strcpy(ts->fw_name,"tp/fw_synaptics_15801b.img");
 		version_is_s3508 = 0;
@@ -3948,7 +3953,7 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 	}
 
 	strcpy(ts->test_limit_name,"tp/14049/14049_Limit_jdi.img");
-	TPD_DEBUG("synatpitcs_fw: fw_name = %s,ts->manu_name:%s \n",ts->fw_name,ts->manu_name);
+	TPD_DEBUG("0synatpitcs_fw: fw_name = %s,ts->manu_name:%s \n",ts->fw_name,ts->manu_name);
 
 	//push_component_info(TP, ts->fw_id, ts->manu_name);
 

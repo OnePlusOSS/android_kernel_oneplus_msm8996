@@ -432,7 +432,6 @@ static void f2fs_put_super(struct super_block *sb)
 	}
 	kobject_del(&sbi->s_kobj);
 
-	f2fs_destroy_stats(sbi);
 	stop_gc_thread(sbi);
 
 	/* We don't need to do checkpoint when it's clean */
@@ -463,6 +462,7 @@ static void f2fs_put_super(struct super_block *sb)
 
 	sb->s_fs_info = NULL;
 	brelse(sbi->raw_super_buf);
+	f2fs_destroy_stats(sbi);
 	kfree(sbi);
 }
 

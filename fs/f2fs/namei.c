@@ -180,11 +180,17 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 	struct inode *inode = NULL;
 	struct f2fs_dir_entry *de;
 	struct page *page;
+	struct ci_name_buf ci_name_buf;
+	struct qstr ci_name;
 
 	if (dentry->d_name.len > F2FS_NAME_LEN)
 		return ERR_PTR(-ENAMETOOLONG);
+	ci_name_buf.name[0] = '\0';
 
-	de = f2fs_find_entry(dir, &dentry->d_name, &page);
+	if (flags & LOOKUP_CASE_INSENSITIVE)
+		de = f2fs_find_entry(dir, &dentry->d_name, &page, &ci_name_buf);
+	else
+		de = f2fs_find_entry(dir, &dentry->d_name, &page, NULL);
 	if (de) {
 		nid_t ino = le32_to_cpu(de->ino);
 		kunmap(page);
@@ -197,7 +203,12 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 		stat_inc_inline_inode(inode);
 	}
 
-	return d_splice_alias(inode, dentry);
+	if (ci_name_buf.name[0] != '\0') {
+		ci_name.name = ci_name_buf.name;
+		ci_name.len = dentry->d_name.len;
+		return d_add_ci(dentry, inode, &ci_name);
+	} else
+		return d_splice_alias(inode, dentry);
 }
 
 static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
@@ -211,7 +222,7 @@ static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 	trace_f2fs_unlink_enter(dir, dentry);
 	f2fs_balance_fs(sbi);
 
-	de = f2fs_find_entry(dir, &dentry->d_name, &page);
+	de = f2fs_find_entry(dir, &dentry->d_name, &page, NULL);
 	if (!de)
 		goto fail;
 
@@ -361,7 +372,7 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	f2fs_balance_fs(sbi);
 
-	old_entry = f2fs_find_entry(old_dir, &old_dentry->d_name, &old_page);
+	old_entry = f2fs_find_entry(old_dir, &old_dentry->d_name, &old_page, NULL);
 	if (!old_entry)
 		goto out;
 
@@ -380,7 +391,7 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 		err = -ENOENT;
 		new_entry = f2fs_find_entry(new_dir, &new_dentry->d_name,
-						&new_page);
+						&new_page, NULL);
 		if (!new_entry)
 			goto out_dir;
 
@@ -485,11 +496,11 @@ static int f2fs_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	f2fs_balance_fs(sbi);
 
-	old_entry = f2fs_find_entry(old_dir, &old_dentry->d_name, &old_page);
+	old_entry = f2fs_find_entry(old_dir, &old_dentry->d_name, &old_page, NULL);
 	if (!old_entry)
 		goto out;
 
-	new_entry = f2fs_find_entry(new_dir, &new_dentry->d_name, &new_page);
+	new_entry = f2fs_find_entry(new_dir, &new_dentry->d_name, &new_page, NULL);
 	if (!new_entry)
 		goto out_old;
 
