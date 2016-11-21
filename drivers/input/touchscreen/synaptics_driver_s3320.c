@@ -4138,20 +4138,20 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 
 	//push_component_info(TP, ts->fw_id, ts->manu_name);
 
-	synaptics_wq = create_singlethread_workqueue("synaptics_wq");
+	synaptics_wq = alloc_ordered_workqueue("synaptics_wq", WQ_HIGHPRI);
 	if( !synaptics_wq ){
 		ret = -ENOMEM;
 		goto exit_createworkqueue_failed;
 	}
 	INIT_DELAYED_WORK(&ts->speed_up_work,speedup_synaptics_resume);
 
-	synaptics_report = create_singlethread_workqueue("synaptics_report");
+	synaptics_report = alloc_ordered_workqueue("synaptics_report", WQ_HIGHPRI);
 	if( !synaptics_report ){
 		ret = -ENOMEM;
 		goto exit_createworkqueue_failed;
 	}
 
-	get_base_report = create_singlethread_workqueue("get_base_report");
+	get_base_report = alloc_ordered_workqueue("get_base_report", WQ_HIGHPRI);
 	if( !get_base_report ){
 		ret = -ENOMEM;
 		goto exit_createworkqueue_failed;
