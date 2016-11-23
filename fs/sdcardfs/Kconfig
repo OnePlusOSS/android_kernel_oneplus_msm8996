@@ -11,11 +11,6 @@ config SDCARD_FS_FADV_NOACTIVE
 	help
 	  Sdcardfs supports fadvise noactive mode.
 
-config SDCARD_FS_CI_SEARCH
-	tristate "sdcardfs case-insensitive search support"
-	depends on SDCARD_FS
-	default y
-
 config SDCARD_FS_XATTR
 	bool "Sdcardfs extended attribute"
 	default y

@@ -193,14 +193,14 @@ void sdcardfs_destroy_inode_cache(void)
  * code can actually succeed and won't leave tasks that need handling.
  */
 
-static long sdcardfs_propagate_lookup(struct super_block *sb, char* pathname) {
+long sdcardfs_propagate_unlink(struct inode *parent, char* pathname) {
 	long ret = 0;
 	char *propagate_path = NULL;
 	struct sdcardfs_sb_info *sbi;
 	struct path sibling_path;
 	const struct cred *saved_cred = NULL;
 
-	sbi = SDCARDFS_SB(sb);
+	sbi = SDCARDFS_SB(parent->i_sb);
 	propagate_path = kmalloc(PATH_MAX, GFP_KERNEL);
 	OVERRIDE_ROOT_CRED(saved_cred);
 	if (sbi->options.type != TYPE_NONE && sbi->options.type != TYPE_DEFAULT) {
@@ -281,17 +281,5 @@ const struct super_operations sdcardfs_sops = {
 	.alloc_inode	= sdcardfs_alloc_inode,
 	.destroy_inode	= sdcardfs_destroy_inode,
 	.drop_inode	= generic_delete_inode,
-};
-
-const struct super_operations sdcardfs_multimount_sops = {
-	.put_super	= sdcardfs_put_super,
-	.statfs		= sdcardfs_statfs,
-	.remount_fs	= sdcardfs_remount_fs,
-	.evict_inode	= sdcardfs_evict_inode,
-	.umount_begin	= sdcardfs_umount_begin,
-	.show_options	= sdcardfs_show_options,
-	.alloc_inode	= sdcardfs_alloc_inode,
-	.destroy_inode	= sdcardfs_destroy_inode,
-	.drop_inode	= generic_delete_inode,
-	.unlink_callback = sdcardfs_propagate_lookup,
+	.unlink_callback = sdcardfs_propagate_unlink,
 };

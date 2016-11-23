@@ -212,7 +212,7 @@ int is_obbpath_invalid(struct dentry *dent)
 	 * regarding the uninitialized obb, refer to the sdcardfs_mkdir() */
 	spin_lock(&di->lock);
 	if(di->orig_path.dentry) {
- 		if(!di->lower_path.dentry) {
+		if(!di->lower_path.dentry) {
 			ret = 1;
 		} else {
 			path_get(&di->lower_path);

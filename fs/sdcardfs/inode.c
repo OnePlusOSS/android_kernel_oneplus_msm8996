@@ -279,9 +279,9 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 	struct path lower_path;
 	const struct cred *saved_cred = NULL;
 	struct sdcardfs_inode_info *pi = SDCARDFS_I(dir);
-	int touch_err = 0;
 	struct fs_struct *saved_fs;
 	struct fs_struct *copied_fs;
+	int touch_err = 0;
 
 	if(!check_caller_access_to_name(dir, dentry->d_name.name)) {
 		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n"
@@ -789,21 +789,10 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 	 * the lower level.
 	 */
 	if (ia->ia_valid & ATTR_SIZE) {
-		loff_t oldsize;
 		err = inode_newsize_ok(inode, ia->ia_size);
 		if (err)
 			goto out;
-		/* This code from truncate_setsize(). We need to add spin_lock
-		 * to avoid race condition with fsstack_copy_inode_size() */
-		oldsize = i_size_read(inode);
-		if (sizeof(ia->ia_size) > sizeof(long))
-			spin_lock(&inode->i_lock);
-		i_size_write(inode, ia->ia_size);
-		if (sizeof(ia->ia_size) > sizeof(long))
-			spin_unlock(&inode->i_lock);
-		if (ia->ia_size > oldsize)
-			pagecache_isize_extended(inode, oldsize, ia->ia_size);
-		truncate_pagecache(inode, ia->ia_size);
+		truncate_setsize(inode, ia->ia_size);
 	}
 
 	/*
@@ -842,6 +831,11 @@ out_err:
 	return err;
 }
 
+static struct inode *sdcardfs_get_lower_inode(struct inode *i)
+{
+	return sdcardfs_lower_inode(i);
+}
+
 const struct inode_operations sdcardfs_symlink_iops = {
 	.permission	= sdcardfs_permission,
 	.setattr	= sdcardfs_setattr,
@@ -851,6 +845,7 @@ const struct inode_operations sdcardfs_symlink_iops = {
 	.listxattr	= sdcardfs_listxattr,
 	.removexattr = sdcardfs_removexattr,
 #endif // SDCARD_FS_XATTR
+	.get_lower_inode = sdcardfs_get_lower_inode,
 	/* XXX Following operations are implemented,
 	 *     but FUSE(sdcard) or FAT does not support them
 	 *     These methods are *NOT* perfectly tested.
@@ -876,6 +871,7 @@ const struct inode_operations sdcardfs_dir_iops = {
 	.listxattr	= sdcardfs_listxattr,
 	.removexattr = sdcardfs_removexattr,
 #endif // SDCARD_FS_XATTR
+	.get_lower_inode = sdcardfs_get_lower_inode,
 	/* XXX Following operations are implemented,
 	 *     but FUSE(sdcard) or FAT does not support them
 	 *     These methods are *NOT* perfectly tested.
@@ -895,4 +891,5 @@ const struct inode_operations sdcardfs_main_iops = {
 	.listxattr	= sdcardfs_listxattr,
 	.removexattr = sdcardfs_removexattr,
 #endif // SDCARDFS_XATTR
+	.get_lower_inode = sdcardfs_get_lower_inode,
 };

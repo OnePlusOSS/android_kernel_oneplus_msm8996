@@ -232,30 +232,28 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 
 	/* Use vfs_path_lookup to check if the dentry exists or not */
 	err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name, 0,
-			&lower_path);
+				&lower_path);
 
 	/* check for other cases */
-	if (sbi->options.lower_fs == LOWER_FS_EXT4) {
-		if (err == -ENOENT) {
-			struct dentry *child;
-			struct dentry *match = NULL;
-			spin_lock(&lower_dir_dentry->d_lock);
-			list_for_each_entry(child, &lower_dir_dentry->d_subdirs, d_child) {
-				if (child && child->d_inode) {
-					if (strcasecmp(child->d_name.name, name)==0) {
-						match = dget(child);
-						break;
-					}
+	if (err == -ENOENT) {
+		struct dentry *child;
+		struct dentry *match = NULL;
+		spin_lock(&lower_dir_dentry->d_lock);
+		list_for_each_entry(child, &lower_dir_dentry->d_subdirs, d_child) {
+			if (child && child->d_inode) {
+				if (strcasecmp(child->d_name.name, name)==0) {
+					match = dget(child);
+					break;
 				}
 			}
-			spin_unlock(&lower_dir_dentry->d_lock);
-			if (match) {
-				err = vfs_path_lookup(lower_dir_dentry,
-							lower_dir_mnt,
-							match->d_name.name, 0,
-							&lower_path);
-				dput(match);
-			}
+		}
+		spin_unlock(&lower_dir_dentry->d_lock);
+		if (match) {
+			err = vfs_path_lookup(lower_dir_dentry,
+						lower_dir_mnt,
+						match->d_name.name, 0,
+						&lower_path);
+			dput(match);
 		}
 	}
 
@@ -268,7 +266,7 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 		if(need_graft_path(dentry)) {
 
 			/* setup_obb_dentry()
- 			 * The lower_path will be stored to the dentry's orig_path
+			 * The lower_path will be stored to the dentry's orig_path
 			 * and the base obbpath will be copyed to the lower_path variable.
 			 * if an error returned, there's no change in the lower_path
 			 * 		returns: -ERRNO if error (0: no error) */

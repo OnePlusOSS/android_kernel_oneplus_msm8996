@@ -46,7 +46,6 @@ static const match_table_t sdcardfs_tokens = {
 	{Opt_gid, "gid=%u"},
 	{Opt_userid, "userid=%u"},
 	{Opt_debug, "debug"},
-	{Opt_lower_fs, "lower_fs=%s"},
 	{Opt_reserved_mb, "reserved_mb=%u"},
 	{Opt_mask, "mask=%o"},
 	{Opt_multi_user, "multi_user"},
@@ -70,10 +69,8 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 	/* by default, userid is 0, gid is AID_EVERYBODY */
 	opts->gid = AID_EVERYBODY;
 	opts->userid = 0;
-	/* by default, we use LOWER_FS_EXT4 as lower fs type */
-	opts->lower_fs = LOWER_FS_EXT4;
-	/* by default, 20MB is reserved */
-	opts->reserved_mb = 20;
+	/* by default, 0MB is reserved */
+	opts->reserved_mb = 0;
 	/* by default, mask is 0 */
 	opts->mask = 0;
 	/* by default, multi_user is false */
@@ -116,20 +113,6 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 			if (match_int(&args[0], &option))
 				goto invalid_option;
 			opts->userid = option;
-			break;
-		case Opt_lower_fs:
-			string_option = match_strdup(&args[0]);
-			if (!string_option)
-				return -ENOMEM;
-			if (!strcmp("ext4", string_option)) {
-				opts->lower_fs = LOWER_FS_EXT4;
-			} else if (!strcmp("fat", string_option)) {
-				opts->lower_fs = LOWER_FS_FAT;
-			} else {
-				kfree(string_option);
-				goto invalid_option;
-			}
-			kfree(string_option);
 			break;
 		case Opt_reserved_mb:
 			if (match_int(&args[0], &option))
@@ -286,10 +269,7 @@ static int sdcardfs_read_super(struct super_block *sb, const char *dev_name,
 	sb->s_time_gran = 1;
 
 	sb->s_magic = SDCARDFS_SUPER_MAGIC;
-	if (sb_info->options.type != TYPE_NONE)
-		sb->s_op = &sdcardfs_multimount_sops;
-	else
-		sb->s_op = &sdcardfs_sops;
+	sb->s_op = &sdcardfs_sops;
 
 	/* see comment next to the definition of sdcardfs_d_alloc_root */
 	sb->s_root = sdcardfs_d_alloc_root(sb);
