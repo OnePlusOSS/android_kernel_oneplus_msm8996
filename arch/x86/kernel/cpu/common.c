@@ -291,10 +291,9 @@ __setup("nosmap", setup_disable_smap);
 
 static __always_inline void setup_smap(struct cpuinfo_x86 *c)
 {
-	unsigned long eflags;
+	unsigned long eflags = native_save_fl();
 
 	/* This should have been cleared long ago */
-	raw_local_save_flags(eflags);
 	BUG_ON(eflags & X86_EFLAGS_AC);
 
 	if (cpu_has(c, X86_FEATURE_SMAP)) {
@@ -1383,7 +1382,7 @@ void cpu_init(void)
 	load_sp0(t, &current->thread);
 	set_tss_desc(cpu, t);
 	load_TR_desc();
-	load_LDT(&init_mm.context);
+	load_mm_ldt(&init_mm);
 
 	clear_all_debug_regs();
 	dbg_restore_debug_regs();
@@ -1404,6 +1403,12 @@ void cpu_init(void)
 	struct thread_struct *thread = &curr->thread;
 
 	wait_for_master_cpu(cpu);
+
+	/*
+	 * Initialize the CR4 shadow before doing anything that could
+	 * try to read it.
+	 */
+	cr4_init_shadow();
 
 	show_ucode_info_early();
 
@@ -1426,7 +1431,7 @@ void cpu_init(void)
 	load_sp0(t, thread);
 	set_tss_desc(cpu, t);
 	load_TR_desc();
-	load_LDT(&init_mm.context);
+	load_mm_ldt(&init_mm);
 
 	t->x86_tss.io_bitmap_base = offsetof(struct tss_struct, io_bitmap);
 

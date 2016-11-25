@@ -1971,10 +1971,14 @@ void udp_v4_early_demux(struct sk_buff *skb)
 		if (!in_dev)
 			return;
 
+		/* we are supposed to accept bcast packets */
+		if (skb->pkt_type == PACKET_MULTICAST) {
 		ours = ip_check_mc_rcu(in_dev, iph->daddr, iph->saddr,
 				       iph->protocol);
 		if (!ours)
 			return;
+		}
+
 		sk = __udp4_lib_mcast_demux_lookup(net, uh->dest, iph->daddr,
 						   uh->source, iph->saddr, dif);
 	} else if (skb->pkt_type == PACKET_HOST) {
@@ -1989,12 +1993,19 @@ void udp_v4_early_demux(struct sk_buff *skb)
 
 	skb->sk = sk;
 	skb->destructor = sock_efree;
-	dst = sk->sk_rx_dst;
+	dst = READ_ONCE(sk->sk_rx_dst);
 
 	if (dst)
 		dst = dst_check(dst, 0);
-	if (dst)
+	if (dst) {
+		/* DST_NOCACHE can not be used without taking a reference */
+		if (dst->flags & DST_NOCACHE) {
+			if (likely(atomic_inc_not_zero(&dst->__refcnt)))
+				skb_dst_set(skb, dst);
+		} else {
 		skb_dst_set_noref(skb, dst);
+}
+	}
 }
 
 int udp_rcv(struct sk_buff *skb)

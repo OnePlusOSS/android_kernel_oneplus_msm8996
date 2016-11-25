@@ -71,6 +71,7 @@ struct snd_efw {
 
 	/* for quirks */
 	bool is_af9;
+	bool is_fireworks3;
 	u32 firmware_version;
 
 	unsigned int midi_in_ports;
@@ -105,7 +106,6 @@ struct snd_efw {
 	u8 *resp_buf;
 	u8 *pull_ptr;
 	u8 *push_ptr;
-	unsigned int resp_queues;
 };
 
 int snd_efw_transaction_cmd(struct fw_unit *unit,

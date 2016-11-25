@@ -173,6 +173,7 @@ static int batadv_interface_tx(struct sk_buff *skb,
 	int gw_mode;
 	enum batadv_forw_mode forw_mode;
 	struct batadv_orig_node *mcast_single_orig = NULL;
+	int network_offset = ETH_HLEN;
 
 	if (atomic_read(&bat_priv->mesh_state) != BATADV_MESH_ACTIVE)
 		goto dropped;
@@ -185,13 +186,17 @@ static int batadv_interface_tx(struct sk_buff *skb,
 	case ETH_P_8021Q:
 		vhdr = vlan_eth_hdr(skb);
 
-		if (vhdr->h_vlan_encapsulated_proto != ethertype)
+		if (vhdr->h_vlan_encapsulated_proto != ethertype) {
+			network_offset += VLAN_HLEN;
 			break;
+		}
 
 		/* fall through */
 	case ETH_P_BATMAN:
 		goto dropped;
 	}
+
+	skb_set_network_header(skb, network_offset);
 
 	if (batadv_bla_tx(bat_priv, skb, vid))
 		goto dropped;
@@ -373,11 +378,17 @@ void batadv_interface_rx(struct net_device *soft_iface,
 	 */
 	nf_reset(skb);
 
+	if (unlikely(!pskb_may_pull(skb, ETH_HLEN)))
+		goto dropped;
+
 	vid = batadv_get_vid(skb, 0);
 	ethhdr = eth_hdr(skb);
 
 	switch (ntohs(ethhdr->h_proto)) {
 	case ETH_P_8021Q:
+		if (!pskb_may_pull(skb, VLAN_ETH_HLEN))
+			goto dropped;
+
 		vhdr = (struct vlan_ethhdr *)skb->data;
 
 		if (vhdr->h_vlan_encapsulated_proto != ethertype)
@@ -389,8 +400,6 @@ void batadv_interface_rx(struct net_device *soft_iface,
 	}
 
 	/* skb->dev & skb->pkt_type are set here */
-	if (unlikely(!pskb_may_pull(skb, ETH_HLEN)))
-		goto dropped;
 	skb->protocol = eth_type_trans(skb, soft_iface);
 
 	/* should not be necessary anymore as we use skb_pull_rcsum()

@@ -1373,6 +1373,7 @@ static int __ocfs2_cluster_lock(struct ocfs2_super *osb,
 	unsigned long flags;
 	unsigned int gen;
 	int noqueue_attempted = 0;
+	int kick_dc = 0;
 
 	ocfs2_init_mask_waiter(&mw);
 
@@ -1501,7 +1502,12 @@ update_holders:
 unlock:
 	lockres_clear_flags(lockres, OCFS2_LOCK_UPCONVERT_FINISHING);
 
+	/* ocfs2_unblock_lock reques on seeing OCFS2_LOCK_UPCONVERT_FINISHING */
+	kick_dc = (lockres->l_flags & OCFS2_LOCK_BLOCKED);
+
 	spin_unlock_irqrestore(&lockres->l_lock, flags);
+	if (kick_dc)
+		ocfs2_wake_downconvert_thread(osb);
 out:
 	/*
 	 * This is helping work around a lock inversion between the page lock
@@ -3993,9 +3999,13 @@ static void ocfs2_downconvert_thread_do_work(struct ocfs2_super *osb)
 	osb->dc_work_sequence = osb->dc_wake_sequence;
 
 	processed = osb->blocked_lock_count;
-	while (processed) {
-		BUG_ON(list_empty(&osb->blocked_lock_list));
-
+	/*
+	 * blocked lock processing in this loop might call iput which can
+	 * remove items off osb->blocked_lock_list. Downconvert up to
+	 * 'processed' number of locks, but stop short if we had some
+	 * removed in ocfs2_mark_lockres_freeing when downconverting.
+	 */
+	while (processed && !list_empty(&osb->blocked_lock_list)) {
 		lockres = list_entry(osb->blocked_lock_list.next,
 				     struct ocfs2_lock_res, l_blocked_list);
 		list_del_init(&lockres->l_blocked_list);

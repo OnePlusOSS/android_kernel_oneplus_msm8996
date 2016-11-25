@@ -135,7 +135,19 @@
 #define pte_iterate_hashed_end() } while(0)
 
 #ifdef CONFIG_PPC_HAS_HASH_64K
-#define pte_pagesize_index(mm, addr, pte)	get_slice_psize(mm, addr)
+/*
+ * We expect this to be called only for user addresses or kernel virtual
+ * addresses other than the linear mapping.
+ */
+#define pte_pagesize_index(mm, addr, pte)			\
+	({							\
+		unsigned int psize;				\
+		if (is_kernel_addr(addr))			\
+			psize = MMU_PAGE_4K;			\
+		else						\
+			psize = get_slice_psize(mm, addr);	\
+		psize;						\
+	})
 #else
 #define pte_pagesize_index(mm, addr, pte)	MMU_PAGE_4K
 #endif
@@ -467,6 +479,7 @@ static inline pte_t *pmdp_ptep(pmd_t *pmd)
 }
 
 #define pmd_pfn(pmd)		pte_pfn(pmd_pte(pmd))
+#define pmd_dirty(pmd)		pte_dirty(pmd_pte(pmd))
 #define pmd_young(pmd)		pte_young(pmd_pte(pmd))
 #define pmd_mkold(pmd)		pte_pmd(pte_mkold(pmd_pte(pmd)))
 #define pmd_wrprotect(pmd)	pte_pmd(pte_wrprotect(pmd_pte(pmd)))
