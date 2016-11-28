@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2015 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -312,7 +312,7 @@ pktlog_enable(struct ol_softc *scn, int32_t log_state)
 	if (!scn) {
 		printk("%s: Invalid scn context\n", __func__);
 		ASSERT(0);
-		return -1;
+		return A_ERROR;
 	}
 
 	txrx_pdev = scn->pdev_txrx_handle;
@@ -326,7 +326,7 @@ pktlog_enable(struct ol_softc *scn, int32_t log_state)
 	if (!pl_dev) {
 		printk("%s: Invalid pktlog context\n", __func__);
 		ASSERT(0);
-		return -1;
+		return A_ERROR;
 	}
 
 	pl_info = pl_dev->pl_info;
@@ -345,7 +345,7 @@ pktlog_enable(struct ol_softc *scn, int32_t log_state)
 			if (!pl_info->buf) {
 				printk("%s: pktlog buf alloc failed\n", __func__);
 				ASSERT(0);
-				return -1;
+				return A_ERROR;
 			}
 		}
 
@@ -365,12 +365,13 @@ pktlog_enable(struct ol_softc *scn, int32_t log_state)
 		if (wdi_pktlog_subscribe(txrx_pdev, log_state)) {
 			printk("Unable to subscribe to the WDI %s\n",
 			       __func__);
-			return -1;
+			return A_ERROR;
 		}
 		/* WMI command to enable pktlog on the firmware */
 		if (pktlog_enable_tgt(scn, log_state)) {
-			printk("Device cannot be enabled, %s\n", __func__);
-			return -1;
+			adf_os_print("Device cannot be enabled, %s\n", __func__);
+			wdi_pktlog_unsubscribe(txrx_pdev, pl_info->log_state);
+			return A_ERROR;
 		} else {
 			pl_dev->tgt_pktlog_enabled = true;
 		}
@@ -378,13 +379,15 @@ pktlog_enable(struct ol_softc *scn, int32_t log_state)
 		pl_dev->pl_funcs->pktlog_disable(scn);
 		pl_dev->tgt_pktlog_enabled = false;
 		if (wdi_pktlog_unsubscribe(txrx_pdev, pl_info->log_state)) {
-			printk("Cannot unsubscribe pktlog from the WDI\n");
-			return -1;
+			adf_os_print("%s: Cannot unsubscribe pktlog from the WDI\n",
+				__func__);
+			return A_ERROR;
 		}
 	}
 
 	pl_info->log_state = log_state;
 	return 0;
+
 }
 
 int
