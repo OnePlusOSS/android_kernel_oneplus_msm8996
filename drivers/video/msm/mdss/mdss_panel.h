@@ -19,6 +19,7 @@
 #include <linux/stringify.h>
 #include <linux/types.h>
 #include <linux/debugfs.h>
+#include "mdss_oem_config.h"
 
 /* panel id type */
 struct panel_id {

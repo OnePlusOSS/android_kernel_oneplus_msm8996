@@ -43,6 +43,7 @@ enum freezer_state_flags {
 struct freezer {
 	struct cgroup_subsys_state	css;
 	unsigned int			state;
+	unsigned int oem_freeze_flag;
 };
 
 static DEFINE_MUTEX(freezer_mutex);
@@ -395,6 +396,8 @@ static void freezer_change_state(struct freezer *freezer, bool freeze)
 	 * CGROUP_FREEZING_PARENT.
 	 */
 	mutex_lock(&freezer_mutex);
+
+	freezer->oem_freeze_flag = freeze ? 1 : 0;
 	rcu_read_lock();
 	css_for_each_descendant_pre(pos, &freezer->css) {
 		struct freezer *pos_f = css_freezer(pos);
@@ -417,6 +420,80 @@ static void freezer_change_state(struct freezer *freezer, bool freeze)
 	}
 	rcu_read_unlock();
 	mutex_unlock(&freezer_mutex);
+}
+
+static void freezer_apply_state_unmutex(struct freezer *freezer,
+			struct task_struct *task, bool freeze,
+			unsigned int state)
+{
+	bool was_freezing = freezer->state & CGROUP_FREEZING;
+
+	if (!(freezer->state & CGROUP_FREEZER_ONLINE))
+		return;
+
+	freezer->state &= ~state;
+
+	if (!(freezer->state & CGROUP_FREEZING)) {
+                struct task_struct *child = task;
+		if (was_freezing)
+			atomic_dec(&system_freezing_cnt);
+		freezer->state &= ~CGROUP_FROZEN;
+                do{
+                    child = next_thread(child);
+                    __thaw_task(child);
+                }while(child != task);
+	}
+}
+
+static void freezer_change_state_unmutex(struct freezer *freezer,
+			struct task_struct *task, bool freeze)
+{
+	struct cgroup_subsys_state *pos;
+
+	rcu_read_lock();
+	css_for_each_descendant_pre(pos, &freezer->css) {
+		struct freezer *pos_f = css_freezer(pos);
+		struct freezer *parent = parent_freezer(pos_f);
+
+		if (!css_tryget_online(pos))
+			continue;
+		rcu_read_unlock();
+
+		if (pos_f == freezer)
+			freezer_apply_state_unmutex(pos_f, task, freeze,
+					    CGROUP_FREEZING_SELF);
+		else
+			freezer_apply_state_unmutex(pos_f, task,
+					    parent->state & CGROUP_FREEZING,
+					    CGROUP_FREEZING_PARENT);
+
+		rcu_read_lock();
+		css_put(pos);
+	}
+	rcu_read_unlock();
+}
+
+void unfreezer_fork(struct task_struct *task)
+{
+	struct freezer *freezer = NULL;
+
+	/*
+	 * The root cgroup is non-freezable, so we can skip locking the
+	*/
+	if (task_css_is_root(task, freezer_cgrp_id))
+		return;
+
+	rcu_read_lock();
+	freezer = task_freezer(task);
+	rcu_read_unlock();
+
+	/* Only unfreeze the "writed FROZEN" group
+	*/
+	if (freezer->oem_freeze_flag != 1)
+		return;
+
+	pr_debug("%s:%s(%d) try to unfreeze\n", __func__,task->comm, task->pid);
+	freezer_change_state_unmutex(freezer, task, 0);
 }
 
 static ssize_t freezer_write(struct kernfs_open_file *of,

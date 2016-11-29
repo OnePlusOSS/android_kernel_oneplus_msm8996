@@ -843,6 +843,9 @@ static ssize_t mdss_fb_set_max_brightness(struct device *dev,
 	return count;
 }
 
+static DEVICE_ATTR(hbm, S_IRUGO | S_IWUSR,
+	mdss_fb_get_max_brightness, mdss_fb_set_max_brightness);
+
 static ssize_t mdss_fb_get_srgb_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -881,10 +884,9 @@ static ssize_t mdss_fb_set_srgb_mode(struct device *dev,
 
 	return count;
 }
+
 static DEVICE_ATTR(SRGB, S_IRUGO | S_IWUSR,
 	mdss_fb_get_srgb_mode, mdss_fb_set_srgb_mode);
-static DEVICE_ATTR(hbm, S_IRUGO | S_IWUSR,
-	mdss_fb_get_max_brightness, mdss_fb_set_max_brightness);
 
 static DEVICE_ATTR(msm_fb_type, S_IRUGO, mdss_fb_get_type, NULL);
 static DEVICE_ATTR(msm_fb_split, S_IRUGO | S_IWUSR, mdss_fb_show_split,

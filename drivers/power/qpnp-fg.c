@@ -585,6 +585,7 @@ struct fg_chip {
 	int			cold_hysteresis;
 	int			hot_hysteresis;
 	bool			use_external_fg;
+	bool			battery_4p4v_present;
 	/* ESR pulse tuning */
 	struct fg_wakeup_source	esr_extract_wakeup_source;
 	struct work_struct	esr_extract_config_work;
@@ -626,6 +627,7 @@ static const mode_t DFS_MODE = S_IRUSR | S_IWUSR;
 static const char *default_batt_type	= "Unknown Battery";
 static const char *loading_batt_type	= "Loading Battery Data";
 static const char *missing_batt_type	= "Disconnected Battery";
+static const char *four_p_four_v_batt_type	= "itech_3400mAH";
 
 /* Log buffer */
 struct fg_log_buffer {
@@ -3136,6 +3138,7 @@ static enum power_supply_property fg_power_props[] = {
 	POWER_SUPPLY_PROP_CYCLE_COUNT_ID,
 	POWER_SUPPLY_PROP_HI_POWER,
 };
+	#define DEFALUT_BATT_TEMP 250
 
 static int fg_power_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
@@ -3150,6 +3153,8 @@ static int fg_power_get_property(struct power_supply *psy,
 			val->strval = missing_batt_type;
 		else if (chip->fg_restarting)
 			val->strval = loading_batt_type;
+		else if (chip->battery_4p4v_present)
+			val->strval = four_p_four_v_batt_type;
 		else
 			val->strval = chip->batt_type;
 		break;
@@ -3190,18 +3195,13 @@ static int fg_power_get_property(struct power_supply *psy,
 		val->intval = chip->batt_max_voltage_uv;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		if ( chip->use_external_fg && external_fg && external_fg->get_battery_temperature)
-		{
-	        val->intval = external_fg->get_battery_temperature();
-		}
-		else if(get_extern_fg_regist_done()==false)
-		{
-	        val->intval = get_sram_prop_now(chip, FG_DATA_BATT_TEMP);
-		}
+		if (chip->use_external_fg && external_fg
+				&& external_fg->get_battery_temperature)
+			val->intval = external_fg->get_battery_temperature();
+		else if (get_extern_fg_regist_done() == false)
+			val->intval = DEFALUT_BATT_TEMP;
 		else
-		{
-	        val->intval = -400;
-		}
+			val->intval = -400;
 		break;
 	case POWER_SUPPLY_PROP_COOL_TEMP:
 		val->intval = get_prop_jeita_temp(chip, FG_MEM_SOFT_COLD);
@@ -4220,6 +4220,9 @@ static int fg_power_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_UPDATE_LCD_IS_OFF:
 		oneplus_set_lcd_off_status(chip,val->intval);
 	break;
+	case POWER_SUPPLY_PROP_BATTERY_4P4V_PRESENT:
+		chip->battery_4p4v_present = val->intval;
+		break;
 	case POWER_SUPPLY_PROP_CHARGE_DONE:
 		chip->charge_done = val->intval;
 		 pr_err("qpnp_fg:charge_done:soc:%d,VOLT:%d,current:%d\n", get_prop_capacity(chip),get_sram_prop_now(chip, FG_DATA_VOLTAGE),get_sram_prop_now(chip, FG_DATA_CURRENT));

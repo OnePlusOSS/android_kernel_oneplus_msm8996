@@ -7,9 +7,25 @@
  */
 #include <linux/reboot.h>
 #include <linux/input.h>
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/timer.h>
+#include <linux/time.h>
+#include <linux/types.h>
+#include <net/sock.h>
+#include <net/netlink.h>
+#include <linux/string.h>
+#include <linux/task_work.h>
 
 extern int oem_get_download_mode(void);
+struct sock *nl_sk = NULL;
+static int fd = -1;
+static struct workqueue_struct *smg_workwq;
+static struct work_struct smg_work;
 
+#define MAX_MSGSIZE 1024
+
+void send_msg(char *message);
 /*
  * the way goto force dump:
  * 1. press the voluemup key and then relase it.
@@ -24,10 +40,10 @@ extern int oem_get_download_mode(void);
 void oem_check_force_dump_key(unsigned int code, int value)
 {
     static enum { NONE, STEP1, STEP2, STEP3,STEP4,STEP5,
-            STEP6,STEP7,STEP8,STEP9,STEP10,STEP11} state = NONE;
+            STEP6,STEP7,STEP8,STEP9,STEP10,STEP11,STEP_DEBUG1} state = NONE;
 
-    if(!oem_get_download_mode())
-        return ;
+    //if(!oem_get_download_mode())
+        //return ;
 
     //printk(KERN_INFO "%s code %d value %d state %d\n",__func__,code,value,state);
     switch(state){
@@ -104,16 +120,103 @@ void oem_check_force_dump_key(unsigned int code, int value)
     case STEP10:
         if(code == KEY_VOLUMEUP && value){
             state = STEP11;
+        }else if(code == KEY_VOLUMEDOWN && value){
+            state = STEP_DEBUG1;
         }else{
             state = NONE;
         }
         break;
     case STEP11:
         if(code == KEY_POWER && value){
-            panic("Force Dump");
+            if(oem_get_download_mode())
+                panic("Force Dump");
+        }else{
+            state = NONE;
+        }
+        break;
+
+    case STEP_DEBUG1:
+        if(code == KEY_POWER && value){
+		queue_work(smg_workwq, &smg_work);
+            //send_msg("Enable DEBUG!");
         }else{
             state = NONE;
         }
         break;
     }
 }
+static void send_msg_worker(struct work_struct *work)
+{
+	send_msg("Enable DEBUG!");
+}
+
+void send_msg(char *message)
+{
+        struct sk_buff *skb;
+        struct nlmsghdr *nlh;
+        int len = NLMSG_SPACE(MAX_MSGSIZE);
+
+        if (!message || !nl_sk) {
+                return;
+        }
+
+        skb = alloc_skb(len, GFP_KERNEL);
+        if (!skb) {
+                printk(KERN_ERR "send_msg:alloc_skb error\n");
+                return;
+        }
+        nlh = nlmsg_put(skb, 0, 0, 0, MAX_MSGSIZE, 0);
+        NETLINK_CB(skb).portid = 0;
+        NETLINK_CB(skb).dst_group = 0;
+        strcpy(NLMSG_DATA(nlh), message);
+        netlink_unicast(nl_sk, skb, fd, MSG_DONTWAIT);
+}
+
+void recv_nlmsg(struct sk_buff *skb)
+{
+        struct nlmsghdr *nlh = nlmsg_hdr(skb);
+
+        if (nlh->nlmsg_len < NLMSG_HDRLEN || skb->len < nlh->nlmsg_len)
+                return;
+        fd = nlh->nlmsg_pid;
+        printk(KERN_INFO "received:%s %d\n", (char*)NLMSG_DATA(nlh), fd);
+}
+
+struct netlink_kernel_cfg nl_kernel_cfg = {
+        .groups = 0,
+        .flags = 0,
+        .input = recv_nlmsg,
+        .cb_mutex = NULL,
+        .bind = NULL,
+        .compare = NULL,
+};
+
+int op_netlink_init(void)
+{
+        nl_sk = netlink_kernel_create(&init_net, NETLINK_ADB, &nl_kernel_cfg);
+        if (!nl_sk) {
+                printk(KERN_ERR "%s: Create netlink socket error.\n", __func__);
+                return 1;
+        }
+        smg_workwq = create_singlethread_workqueue("oem_key_dump");
+        if (!smg_workwq) {
+                printk(KERN_ERR "%s: Create oem_key_dump error.\n", __func__);
+                return 1;
+        }
+	INIT_WORK(&smg_work, send_msg_worker);
+        printk(KERN_INFO "%s\n", __func__);
+        return 0;
+}
+
+static void op_netlink_exit(void)
+{
+        if (nl_sk != NULL)
+                sock_release(nl_sk->sk_socket);
+	if (smg_workwq != NULL)
+		destroy_workqueue(smg_workwq);
+        printk(KERN_ERR "%s\n", __func__);
+}
+
+module_init(op_netlink_init);
+module_exit(op_netlink_exit);
+MODULE_LICENSE("GPL v2");
