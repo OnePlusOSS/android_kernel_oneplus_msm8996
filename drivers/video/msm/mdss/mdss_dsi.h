@@ -521,16 +521,23 @@ struct mdss_dsi_ctrl_pdata {
 	int m_mdp_vote_cnt;
 	/* debugfs structure */
 	struct mdss_dsi_debugfs_info *debugfs_info;
-	int lcd_power_1v8_en; //guozhiming modify for lcd 2015-10-15
+	int lcd_power_1v8_en;
 	int esd_te_gpio;
 	struct delayed_work techeck_work;
 	struct completion te_comp;
 	int acl_mode;
+	struct dsi_panel_cmds acl_cmds;
+	int acl_ncmds;
+	int acl_npayload;
 	struct dsi_err_container err_cont;
 	int  max_brightness_level;
 	char high_brightness_panel;
+	struct dsi_panel_cmds hbm_on_cmds;
+	struct dsi_panel_cmds hbm_off_cmds;
 	int  SRGB_mode;
 	int SRGB_first_on;
+	struct dsi_panel_cmds srgb_on_cmds;
+	struct dsi_panel_cmds srgb_off_cmds;
 
 	bool ds_registered;
 
@@ -654,10 +661,10 @@ void mdss_dsi_panel_dsc_pps_send(struct mdss_dsi_ctrl_pdata *ctrl,
 void mdss_dsi_dsc_config(struct mdss_dsi_ctrl_pdata *ctrl,
 	struct dsc_desc *dsc);
 void mdss_dsi_dfps_config_8996(struct mdss_dsi_ctrl_pdata *ctrl);
-void mdss_dsi_panel_set_acl(struct mdss_dsi_ctrl_pdata *ctrl, int mode);
+int mdss_dsi_panel_set_acl(struct mdss_dsi_ctrl_pdata *ctrl, int mode);
 void mdss_dsi_panel_set_max_brightness(struct mdss_dsi_ctrl_pdata *ctrl, int level);
 int mdss_dsi_panel_get_max_brightness(struct mdss_dsi_ctrl_pdata *ctrl);
-void mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
 int mdss_dsi_panel_get_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl);
 
 static inline const char *__mdss_dsi_pm_name(enum dsi_pm_type module)

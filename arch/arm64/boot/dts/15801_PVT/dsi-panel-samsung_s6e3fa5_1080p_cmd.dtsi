@@ -55,7 +55,12 @@
 			39 01 00 00 00 00 03 F0 A5 A5
 			15 01 00 00 00 00 02 53 20
 			15 01 00 00 00 00 02 55 00
-			39 01 00 00 00 00 02 57 40
+			39 01 00 00 00 00 03 F0 5A 5A
+                      39 01 00 00 00 00 02 C3 01
+                      39 01 00 00 00 00 02 B0 18
+                      39 01 00 00 00 00 02 C3 00
+                      39 01 00 00 00 00 03 F0 A5 A5
+
                 ];
 		qcom,mdss-dsi-off-command = [05 01 00 00 28 00 02 28 00
 					05 01 00 00 A0 00 02 10 00];
@@ -102,5 +107,78 @@
 	       // qcom,mdss-tear-check-rd-ptr-trigger-intr= <1921>; /* Height + 1 */
 
 		qcom,mdss-dsi-high-brightness-panel;
+		qcom,mdss-dsi-panel-acl-command = [15 01 00 00 00 00 02 55 00];
+		qcom,mdss-dsi-acl-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-acl-ncmds = <0>;
+		qcom,mdss-dsi-acl-npayload = <1>;
+		qcom,mdss-dsi-panel-hbm-on-command = [15 01 00 00 00 00 02 53 E8];
+		qcom,mdss-dsi-panel-hbm-off-command = [15 01 00 00 00 00 02 53 28];
+		qcom,mdss-dsi-hbm-command-state = "dsi_hs_mode";
+		/******************************************************************************/
+// if you need read the lcd register value you can modify the qcom,mdss-dsi-id-command
+		qcom,mdss-dsi-read-reg-enable-command  = [39 01 00 00 00 00 03 F0 5A 5A];
+		qcom,mdss-dsi-read-reg-disable-command = [29 01 00 00 00 00 03 F0 A5 A5];
+		qcom,mdss-dsi-packetsizetxcmds-command = [37 01 00 00 00 00 02 07 00];
+		qcom,mdss-dsi-readpostxcmds-command =     [15 01 00 00 00 00 02 B0 00];
+		qcom,mdss-dsi-id-command = [ 06 01 00 00 00 00 01 C3 0A 19]; //read C3 25~35th , 25=0x19
+		qcom,mdss-dsi-packetsizetxcmds-command-state = "dsi_lp_mode";
+		qcom,mdss-dsi-readpostxcmds-command-state    = "dsi_lp_mode";
+		qcom,mdss-dsi-read-reg-enable-command-state  =  "dsi_lp_mode";
+		qcom,mdss-dsi-read-reg-disable-command-state =  "dsi_lp_mode";
+		qcom,mdss-dsi-id-command-state = "dsi_lp_mode";
+
+/*****************************************************************************/
+			qcom,mdss-dsi-panel-srgb-on-command = [
+				39 01 00 00 00 00 03 F0 5A 5A
+				39 01 00 00 00 00 02 C3 81
+				39 01 00 00 00 00 02 B0 18
+				39 01 00 00 00 00 02 C3 01
+				39 01 00 00 00 00 03 F0 A5 A5
+				];
+			qcom,mdss-dsi-panel-srgb-off-command = [
+				39 01 00 00 00 00 03 F0 5A 5A
+				39 01 00 00 00 00 02 C3 01
+				39 01 00 00 00 00 02 B0 18
+				39 01 00 00 00 00 02 C3 00
+				39 01 00 00 00 00 03 F0 A5 A5
+				];
+			qcom,mdss-dsi-srgb-command-state = "dsi_hs_mode";
+	/*****************************************************************************/
+			qcom,mdss-dsi-panel-Adobe-rgb-on-command = [
+				39 01 00 00 00 00 03 F0 5A 5A
+				39 01 00 00 00 00 02 C3 81
+				39 01 00 00 00 00 02 B0 18
+				39 01 00 00 00 00 02 C3 11
+				39 01 00 00 00 00 03 F0 A5 A5
+				];
+			qcom,mdss-dsi-panel-Adobe-rgb-off-command = [
+				39 01 00 00 00 00 03 F0 5A 5A
+				39 01 00 00 00 00 02 C3 01
+				39 01 00 00 00 00 02 B0 18
+				39 01 00 00 00 00 02 C3 00
+				39 01 00 00 00 00 03 F0 A5 A5
+				];
+
+			qcom,mdss-dsi-Adobe-rgb-command-state = "dsi_hs_mode";
+
+	/*****************************************************************************/
+			qcom,mdss-dsi-panel-dci-p3-on-command = [
+				39 01 00 00 00 00 03 F0 5A 5A
+				39 01 00 00 00 00 02 C3 81
+				39 01 00 00 00 00 02 B0 18
+				39 01 00 00 00 00 02 C3 21
+				39 01 00 00 00 00 03 F0 A5 A5
+				];
+			qcom,mdss-dsi-panel-dci-p3-off-command = [
+				39 01 00 00 00 00 03 F0 5A 5A
+				39 01 00 00 00 00 02 C3 01
+				39 01 00 00 00 00 02 B0 18
+				39 01 00 00 00 00 02 C3 00
+				39 01 00 00 00 00 03 F0 A5 A5
+				];
+
+			qcom,mdss-dsi-dci-p3-command-state = "dsi_hs_mode";
+	/*****************************************************************************/
+
 	};
 };

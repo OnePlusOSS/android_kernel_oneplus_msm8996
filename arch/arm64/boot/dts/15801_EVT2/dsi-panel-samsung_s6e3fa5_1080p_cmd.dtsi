@@ -55,7 +55,11 @@
 			39 01 00 00 00 00 03 F0 A5 A5
 			15 01 00 00 00 00 02 53 20
 			15 01 00 00 00 00 02 55 00
-			39 01 00 00 00 00 02 57 40
+			39 01 00 00 00 00 03 F0 5A 5A
+                      39 01 00 00 00 00 02 C3 01
+                      39 01 00 00 00 00 02 B0 18
+                      39 01 00 00 00 00 02 C3 00
+                      39 01 00 00 00 00 03 F0 A5 A5
                 ];
 		qcom,mdss-dsi-off-command = [05 01 00 00 28 00 02 28 00
 					05 01 00 00 A0 00 02 10 00];
@@ -102,5 +106,15 @@
 	       // qcom,mdss-tear-check-rd-ptr-trigger-intr= <1921>; /* Height + 1 */
 
 		qcom,mdss-dsi-high-brightness-panel;
+		qcom,mdss-dsi-panel-acl-command = [15 01 00 00 00 00 02 55 00];
+		qcom,mdss-dsi-acl-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-acl-ncmds = <0>;
+		qcom,mdss-dsi-acl-npayload = <1>;
+		qcom,mdss-dsi-panel-srgb-on-command = [39 01 00 00 00 00 02 57 4c];
+		qcom,mdss-dsi-panel-srgb-off-command = [39 01 00 00 00 00 02 57 40];
+		qcom,mdss-dsi-srgb-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-panel-hbm-on-command = [15 01 00 00 00 00 02 53 E8];
+		qcom,mdss-dsi-panel-hbm-off-command = [15 01 00 00 00 00 02 53 28];
+		qcom,mdss-dsi-hbm-command-state = "dsi_hs_mode";
 	};
 };

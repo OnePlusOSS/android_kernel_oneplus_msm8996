@@ -110,6 +110,16 @@
 	       // qcom,mdss-tear-check-rd-ptr-trigger-intr= <1921>; /* Height + 1 */
 
 		qcom,mdss-dsi-high-brightness-panel;
+		qcom,mdss-dsi-panel-acl-command = [15 01 00 00 00 00 02 55 00];
+		qcom,mdss-dsi-acl-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-acl-ncmds = <0>;
+		qcom,mdss-dsi-acl-npayload = <1>;
+		qcom,mdss-dsi-panel-srgb-on-command = [39 01 00 00 00 00 02 57 4c];
+		qcom,mdss-dsi-panel-srgb-off-command = [39 01 00 00 00 00 02 57 40];
+		qcom,mdss-dsi-srgb-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-panel-hbm-on-command = [15 01 00 00 00 00 02 53 E8];
+		qcom,mdss-dsi-panel-hbm-off-command = [15 01 00 00 00 00 02 53 28];
+		qcom,mdss-dsi-hbm-command-state = "dsi_hs_mode";
 		
 	};
 };

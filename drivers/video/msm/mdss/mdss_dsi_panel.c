@@ -222,68 +222,44 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
-static char acl_mode[2] = {0x55, 0x0};	/* DTYPE_DCS_WRITE1 */
-static struct dsi_cmd_desc acl_cmd = {
-	{DTYPE_DCS_WRITE1, 1, 0, 0, 1, sizeof(acl_mode)},
-	acl_mode
-};
-
-void mdss_dsi_panel_set_acl(struct mdss_dsi_ctrl_pdata *ctrl, int mode)
+int mdss_dsi_panel_set_acl(struct mdss_dsi_ctrl_pdata *ctrl, int mode)
 {
-	struct dcs_cmd_req cmdreq;
-	struct mdss_panel_info *pinfo;
+	struct dsi_panel_cmds *acl_cmds;
 
-	pinfo = &(ctrl->panel_data.panel_info);
-	if (pinfo->dcs_cmd_by_left) {
-		if (ctrl->ndx != DSI_CTRL_LEFT)
-			return;
+	acl_cmds = &ctrl->acl_cmds;
+	if(!acl_cmds->cmd_cnt){
+		printk("this panel don't support acl mode\n");
+		return -1;
 	}
 
-	pr_err("%s: level=%d\n", __func__, mode);
+	acl_cmds->cmds[ctrl->acl_ncmds].payload[ctrl->acl_npayload] = mode;
 
-	acl_mode[1] = (unsigned char)mode;
-	memset(&cmdreq, 0, sizeof(cmdreq));
-	cmdreq.cmds = &acl_cmd;
-	cmdreq.cmds_cnt = 1;
-	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
-	cmdreq.rlen = 0;
-	cmdreq.cb = NULL;
+	mdss_dsi_panel_cmds_send(ctrl, acl_cmds, CMD_REQ_COMMIT);
 
-	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+	return 0;
 }
-
-static char srgb_mode[2] = {0x57, 0x40};
-static struct dsi_cmd_desc srgb_cmd = {
-	{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(srgb_mode)},
-	srgb_mode
-};
-void mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
+int mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 {
-	struct dcs_cmd_req cmdreq;
-	struct mdss_panel_info *pinfo;
+	struct dsi_panel_cmds *srgb_on_cmds,*srgb_off_cmds;
 
-	pinfo = &(ctrl->panel_data.panel_info);
-	if (pinfo->dcs_cmd_by_left) {
-		if (ctrl->ndx != DSI_CTRL_LEFT)
-			return;
+	srgb_on_cmds = &ctrl->srgb_on_cmds;
+	srgb_off_cmds = &ctrl->srgb_off_cmds;
+
+	if(!srgb_on_cmds->cmd_cnt){
+		printk("this panel don't support srgb mode\n");
+		return -1;
 	}
 
 	if (level){
-	    srgb_mode[1] = 0x4C;
-	    pr_err("sRGB Mode On.\n");
+			mdss_dsi_panel_cmds_send(ctrl, srgb_on_cmds, CMD_REQ_COMMIT);
+		pr_err("sRGB Mode On.\n");
 	}
 	else{
-		srgb_mode[1] = 0x40;
-	    pr_err("sRGB Mode off.\n");
+			mdss_dsi_panel_cmds_send(ctrl, srgb_off_cmds, CMD_REQ_COMMIT);
+		pr_err("sRGB Mode off.\n");
 	}
-	memset(&cmdreq, 0, sizeof(cmdreq));
-	cmdreq.cmds = &srgb_cmd;
-	cmdreq.cmds_cnt = 1;
-	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
-	cmdreq.rlen = 0;
-	cmdreq.cb = NULL;
 
-	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+	return 0;
 }
 int mdss_dsi_panel_get_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl)
 {
@@ -727,39 +703,30 @@ static void mdss_dsi_panel_switch_mode(struct mdss_panel_data *pdata,
 }
 
 static char hbm_status = 0;
-static char hbm_mode[2] = {0x53, 0x0};	/* DTYPE_DCS_WRITE1 */
-static struct dsi_cmd_desc hbm_cmd = {
-	{DTYPE_DCS_WRITE1, 1, 0, 0, 1, sizeof(hbm_mode)},
-	hbm_mode
-};
-void mdss_dsi_panel_set_hbm(struct mdss_dsi_ctrl_pdata *ctrl, int level)
-{
-	struct dcs_cmd_req cmdreq;
-	struct mdss_panel_info *pinfo;
 
-	pinfo = &(ctrl->panel_data.panel_info);
-	if (pinfo->dcs_cmd_by_left) {
-		if (ctrl->ndx != DSI_CTRL_LEFT)
-			return;
+int mdss_dsi_panel_set_hbm(struct mdss_dsi_ctrl_pdata *ctrl, int level)
+{
+	struct dsi_panel_cmds *hbm_on_cmds,*hbm_off_cmds;
+
+	hbm_on_cmds = &ctrl->hbm_on_cmds;
+	hbm_off_cmds = &ctrl->hbm_off_cmds;
+	if(!hbm_on_cmds->cmd_cnt){
+		printk("this panel don't support hbm mode\n");
+		return -1;
 	}
+
 	if (level){
-	    hbm_mode[1] = 0xE8;
+	    mdss_dsi_panel_cmds_send(ctrl, hbm_on_cmds, CMD_REQ_COMMIT);
 	    pr_err("HBM Mode ON\n");
 	}
 	else{
-		hbm_mode[1] = 0x28;
+		mdss_dsi_panel_cmds_send(ctrl, hbm_off_cmds, CMD_REQ_COMMIT);
 	    pr_err("HBM Mode OFF\n");
 	}
 
 	hbm_status = level;
-	memset(&cmdreq, 0, sizeof(cmdreq));
-	cmdreq.cmds = &hbm_cmd;
-	cmdreq.cmds_cnt = 1;
-	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
-	cmdreq.rlen = 0;
-	cmdreq.cb = NULL;
 
-	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+	return 0;
 }
 
 #define BRIGHTNESS_LEVEL_MASK 0x000F
@@ -2545,6 +2512,30 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	if (rc)
 		return rc;
 
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->acl_cmds,
+		"qcom,mdss-dsi-panel-acl-command",
+		"qcom,mdss-dsi-acl-command-state");
+
+	rc = of_property_read_u32(np, "qcom,mdss-dsi-acl-ncmds", &tmp);
+	ctrl_pdata->acl_ncmds = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(np, "qcom,mdss-dsi-acl-npayload", &tmp);
+	ctrl_pdata->acl_npayload = (!rc ? tmp : 0);
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->srgb_on_cmds,
+		"qcom,mdss-dsi-panel-srgb-on-command",
+		"qcom,mdss-dsi-srgb-command-state");
+
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->srgb_off_cmds,
+		"qcom,mdss-dsi-panel-srgb-off-command",
+		"qcom,mdss-dsi-srgb-command-state");
+
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->hbm_on_cmds,
+		"qcom,mdss-dsi-panel-hbm-on-command",
+		"qcom,mdss-dsi-hbm-command-state");
+
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->hbm_off_cmds,
+		"qcom,mdss-dsi-panel-hbm-off-command",
+		"qcom,mdss-dsi-hbm-command-state");
 	pinfo->mipi.rx_eot_ignore = of_property_read_bool(np,
 		"qcom,mdss-dsi-rx-eot-ignore");
 	pinfo->mipi.tx_eot_append = of_property_read_bool(np,

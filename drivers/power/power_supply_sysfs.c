@@ -150,6 +150,8 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(fastchg_starting),
 	POWER_SUPPLY_ATTR(update_lcd_is_off),
 	POWER_SUPPLY_ATTR(check_usb_unplug),
+	POWER_SUPPLY_ATTR(switch_dash),
+	POWER_SUPPLY_ATTR(battery_4p4v_preset),
 	POWER_SUPPLY_ATTR(charge_type),
 	POWER_SUPPLY_ATTR(health),
 	POWER_SUPPLY_ATTR(present),
