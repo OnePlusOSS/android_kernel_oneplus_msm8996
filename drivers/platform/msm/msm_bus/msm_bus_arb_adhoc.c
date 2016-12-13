@@ -892,6 +892,7 @@ static void unregister_client_adhoc(uint32_t cl)
 	commit_data();
 	msm_bus_dbg_client_data(client->pdata, MSM_BUS_DBG_UNREGISTER, cl);
 	kfree(client->src_pnode);
+    kfree(client->src_devs);
 	kfree(client);
 	handle_list.cl_list[cl] = NULL;
 exit_unregister_client:
