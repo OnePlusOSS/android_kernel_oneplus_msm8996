@@ -244,7 +244,7 @@ struct dwc3_msm {
 	unsigned int		lpm_to_suspend_delay;
 	bool			init;
 };
-int otg_switch;
+int otg_switch = 1;
 struct dwc3_msm *opmdwc;
 bool gadget_start = false;/*Anderson-Avoid_warning_about_irq+ */
 

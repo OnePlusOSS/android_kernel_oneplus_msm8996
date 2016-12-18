@@ -343,8 +343,6 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 
 	state = (__gpio_get_value(button->gpio) ? 1 : 0) ^ button->active_low;
 
-	oem_check_force_dump_key(button->code,state);
-
 	if (type == EV_ABS) {
 		if (state)
 			input_event(input, type, button->code, button->value);
@@ -352,6 +350,8 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 		input_event(input, type, button->code, !!state);
 	}
 	input_sync(input);
+
+	oem_check_force_dump_key(button->code,state);
 }
 
 static void gpio_keys_gpio_work_func(struct work_struct *work)

@@ -1132,4 +1132,9 @@ config TOUCHSCREEN_SYNAPTICS_S3320_I2C_RMI
 	depends on I2C
 	help
 	  This enables support for Synaptics s1302 RMI over I2C based touch key.
+config SWEEP2SLEEP
+        tristate "Sweep to put device to sleep"
+        default y
+        help
+          Say Y here to support sweep2sleep
 endif

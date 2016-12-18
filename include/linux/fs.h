@@ -133,6 +133,15 @@ typedef void (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 /* Has write method(s) */
 #define FMODE_CAN_WRITE         ((__force fmode_t)0x40000)
 
+#ifdef CONFIG_SDCARD_FS
+/* liochen@filesystem, 2016/08/09, Support sdcardfs filesystem in kernel */
+/* File hasn't page cache and can't be mmaped, for stackable filesystem */
+#define FMODE_NONMAPPABLE        ((__force fmode_t)0x400000)
+
+/* File page don't need to be cached, for stackable filesystem's lower file */
+#define FMODE_NONCACHEABLE     ((__force fmode_t)0x800000)
+#endif
+
 /* File was opened by fanotify and shouldn't generate fanotify events */
 #define FMODE_NONOTIFY		((__force fmode_t)0x1000000)
 
@@ -1427,6 +1436,10 @@ extern int vfs_rmdir(struct inode *, struct dentry *);
 extern int vfs_unlink(struct inode *, struct dentry *, struct inode **);
 extern int vfs_rename(struct inode *, struct dentry *, struct inode *, struct dentry *, struct inode **, unsigned int);
 extern int vfs_whiteout(struct inode *, struct dentry *);
+#ifdef CONFIG_SDCARD_FS
+/* liochen@filesystem, 2016/08/09, Support sdcardfs filesystem in kernel */
+extern long do_unlinkat(int, const char __user *, bool);
+#endif
 
 /*
  * VFS dentry helper functions.
@@ -1521,6 +1534,10 @@ struct file_operations {
 	long (*fallocate)(struct file *file, int mode, loff_t offset,
 			  loff_t len);
 	int (*show_fdinfo)(struct seq_file *m, struct file *f);
+#ifdef CONFIG_SDCARD_FS
+/* liochen@filesystem, 2016/08/09, Support sdcardfs filesystem in kernel */
+	struct file* (*get_lower_file)(struct file *f);
+#endif
 };
 
 struct inode_operations {
@@ -1560,6 +1577,11 @@ struct inode_operations {
 
 	/* WARNING: probably going away soon, do not use! */
 	int (*dentry_open)(struct dentry *, struct file *, const struct cred *);
+#ifdef CONFIG_SDCARD_FS
+/* liochen@filesystem, 2016/08/09, Support sdcardfs filesystem in kernel */
+	struct inode * (*get_lower_inode)(struct inode *);
+#endif
+
 } ____cacheline_aligned;
 
 ssize_t rw_copy_check_uvector(int type, const struct iovec __user * uvector,
@@ -1601,6 +1623,10 @@ struct super_operations {
 	int (*bdev_try_to_free_page)(struct super_block*, struct page*, gfp_t);
 	long (*nr_cached_objects)(struct super_block *, int);
 	long (*free_cached_objects)(struct super_block *, long, int);
+#ifdef CONFIG_SDCARD_FS
+/* liochen@filesystem, 2016/08/09, Support sdcardfs filesystem in kernel */
+	long (*unlink_callback)(struct inode *, char *);
+#endif
 };
 
 /*

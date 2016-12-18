@@ -11,6 +11,8 @@
  * GNU General Public License for more details.
  */
 
+// #define DEBUG
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -249,6 +251,110 @@
 #define KPDBL_MODULE_EN_MASK		0x80
 #define NUM_KPDBL_LEDS			4
 #define KPDBL_MASTER_BIT_INDEX		0
+
+#define LED_SPEED_MAX			20
+#define LED_SPEED_STOCK_MODE	0
+#define LED_SPEED_CONT_MODE		1
+#define LED_INTENSITY_MAX		100
+#define LED_INTENSITY_STOCK		0
+
+#define LED_CUSTOM_PAUSE_HI		1400
+#define LED_CUSTOM_PAUSE_LO		2000
+#define LED_CUSTOM_RAMP_STEP	90
+#define LED_CUSTOM_PWM_US		1000
+
+
+int led_enable_fade = 1;	// default is fading
+int led_intensity = 0;		// default is stock intensity
+int led_speed = 0;			// default is stock speed
+
+u32 convert_pause_hi_store (u32 value)
+{
+	pr_debug("Boeffla-LED: pause_hi orig = %d\n", value);
+
+	// calculate new pause time if speed is not set to stock
+	if (led_speed != LED_SPEED_STOCK_MODE)
+		value = LED_CUSTOM_PAUSE_HI / led_speed;
+
+	pr_debug("Boeffla-LED: pause_hi new = %d\n", value);
+	return value;
+}
+
+u32 convert_pause_lo_store (u32 value)
+{
+	pr_debug("Boeffla-LED: pause_lo orig = %d\n", value);
+
+	// calculate new pause time if speed is not set to stock
+	if (led_speed != LED_SPEED_STOCK_MODE)
+		value = LED_CUSTOM_PAUSE_LO / led_speed;
+
+	pr_debug("Boeffla-LED: pause_lo new = %d\n", value);
+	return value;
+}
+
+u32 convert_ramp_ms_store (u32 ramp_step_ms)
+{
+	pr_debug("Boeffla-LED: ramp_step_ms orig = %d\n", ramp_step_ms);
+
+	// no fading = disable ramp times
+	if (led_enable_fade == 0)
+		return 1;
+		
+	// speed is set to stock = take roms ramp times
+	if (led_speed == LED_SPEED_STOCK_MODE)
+		return ramp_step_ms;
+		
+	// calculate new ramp time
+	ramp_step_ms = LED_CUSTOM_RAMP_STEP / led_speed;
+
+	pr_debug("Boeffla-LED: ramp_step_ms new = %d\n", ramp_step_ms);
+	return ramp_step_ms;
+}
+
+u32 convert_pwm_us (u32 pwm_us)
+{
+	pr_debug("Boeffla-LED: pwm_us orig = %d\n", pwm_us);
+
+	// speed is set to stock = take roms ramp times
+	if (led_speed == LED_SPEED_STOCK_MODE)
+		return pwm_us;
+
+	// fix value for pwm us
+	pwm_us = LED_CUSTOM_PWM_US;
+
+	pr_debug("Boeffla-LED: pwm_us new = %d\n", pwm_us);
+	return pwm_us;
+}
+
+int check_for_notification_led(struct led_classdev *led_cdev)
+{
+	if ((strcmp(led_cdev->name, "red") == 0) ||
+		(strcmp(led_cdev->name, "green") == 0) ||
+		(strcmp(led_cdev->name, "blue") == 0))
+		return 1;
+
+	return 0;
+}
+
+int convert_brightness (int brightness)
+{
+	pr_debug("Boeffla-LED: brightness orig = %d\n", brightness);
+
+	// 0 value is stock
+	if (led_intensity == LED_INTENSITY_STOCK)
+		return brightness;
+
+	// 1 value is switch off in any case
+	if (led_intensity == 1)
+		return 0;
+	
+	// calculate dimmed value	
+	brightness = (brightness * led_intensity) / LED_INTENSITY_MAX;
+
+	pr_debug("Boeffla-LED: brightness new = %d\n", brightness);
+	return brightness;
+}
+
 
 /**
  * enum qpnp_leds - QPNP supported led ids
@@ -1810,7 +1916,11 @@ static void qpnp_led_set(struct led_classdev *led_cdev,
 	if (value > led->cdev.max_brightness)
 		value = led->cdev.max_brightness;
 
-	led->cdev.brightness = value;
+	if (check_for_notification_led(led_cdev))
+		led->cdev.brightness = convert_brightness(value);
+	else
+		led->cdev.brightness = value;
+
 	if (led->in_order_command_processing)
 		queue_work(led->workqueue, &led->work);
 	else
@@ -2204,6 +2314,9 @@ static ssize_t pwm_us_store(struct device *dev,
 	if (ret)
 		return ret;
 
+	if (check_for_notification_led(led_cdev))
+		pwm_us = convert_pwm_us(pwm_us);
+
 	switch (led->id) {
 	case QPNP_ID_LED_MPP:
 		pwm_cfg = led->mpp_cfg->pwm_cfg;
@@ -2259,6 +2372,9 @@ static ssize_t pause_lo_store(struct device *dev,
 		return ret;
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
 
+	if (check_for_notification_led(led_cdev))
+		pause_lo = convert_pause_lo_store(pause_lo);
+
 	switch (led->id) {
 	case QPNP_ID_LED_MPP:
 		pwm_cfg = led->mpp_cfg->pwm_cfg;
@@ -2313,6 +2429,9 @@ static ssize_t pause_hi_store(struct device *dev,
 	if (ret)
 		return ret;
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
+
+	if (check_for_notification_led(led_cdev))
+		pause_hi = convert_pause_hi_store(pause_hi);
 
 	switch (led->id) {
 	case QPNP_ID_LED_MPP:
@@ -2424,6 +2543,9 @@ static ssize_t ramp_step_ms_store(struct device *dev,
 	if (ret)
 		return ret;
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
+
+	if (check_for_notification_led(led_cdev))
+		ramp_step_ms = convert_ramp_ms_store(ramp_step_ms);
 
 	switch (led->id) {
 	case QPNP_ID_LED_MPP:
@@ -2678,6 +2800,19 @@ static ssize_t blink_store(struct device *dev,
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
 	led->cdev.brightness = blinking ? led->cdev.max_brightness : 0;
 
+	// AP: ensure, pwm configuration is always updated to avoid issues after startup
+	// with apps, that do not set it completely for all LEDs (e.g. WhatsApp);
+	// only do the update when we are not in stock speed mode and for RGB LEDs
+	if (check_for_notification_led(led_cdev) && (led_speed != LED_SPEED_STOCK_MODE))
+	{
+		pwm_free(led->rgb_cfg->pwm_cfg->pwm_dev);
+		led->rgb_cfg->pwm_cfg->lut_params.lut_pause_hi = convert_pause_hi_store(LED_CUSTOM_PAUSE_HI);
+		led->rgb_cfg->pwm_cfg->lut_params.lut_pause_lo = convert_pause_lo_store(LED_CUSTOM_PAUSE_LO);
+		led->rgb_cfg->pwm_cfg->pwm_period_us = convert_pwm_us(LED_CUSTOM_PWM_US);
+		led->rgb_cfg->pwm_cfg->lut_params.ramp_step_ms = convert_ramp_ms_store(LED_CUSTOM_RAMP_STEP);
+		qpnp_pwm_init(led->rgb_cfg->pwm_cfg, led->spmi_dev, led->cdev.name);
+	}
+
 	switch (led->id) {
 	case QPNP_ID_LED_MPP:
 		led_blink(led, led->mpp_cfg->pwm_cfg);
@@ -2685,7 +2820,22 @@ static ssize_t blink_store(struct device *dev,
 	case QPNP_ID_RGB_RED:
 	case QPNP_ID_RGB_GREEN:
 	case QPNP_ID_RGB_BLUE:
-		led_blink(led, led->rgb_cfg->pwm_cfg);
+		if (check_for_notification_led(led_cdev))
+		{
+			if (led_speed != LED_SPEED_CONT_MODE)
+				led_blink(led, led->rgb_cfg->pwm_cfg);
+			else
+			{
+				led->cdev.brightness = convert_brightness(led->cdev.max_brightness);
+				if (led->in_order_command_processing)
+					queue_work(led->workqueue, &led->work);
+				else
+					schedule_work(&led->work);
+			}
+		}
+		else
+			led_blink(led, led->rgb_cfg->pwm_cfg);
+
 		break;
 	case QPNP_ID_KPDBL:
 		led_blink(led, led->kpdbl_cfg->pwm_cfg);
@@ -2694,6 +2844,86 @@ static ssize_t blink_store(struct device *dev,
 		dev_err(&led->spmi_dev->dev, "Invalid LED id type for blink\n");
 		return -EINVAL;
 	}
+	return count;
+}
+
+static ssize_t show_led_fade(struct device *dev,
+                    struct device_attribute *attr, char *buf)
+{
+	switch(led_enable_fade) 
+	{
+		case 0:		
+			return sprintf(buf, "%d - off\n", led_enable_fade);
+		case 1:		
+			return sprintf(buf, "%d - on\n", led_enable_fade);
+		default:	
+			return sprintf(buf, "%d - undefined\n", led_enable_fade);
+	}
+}
+
+static ssize_t store_led_fade(struct device *dev,
+					struct device_attribute *devattr,
+					const char *buf, size_t count)
+{
+	int enabled = -1; /* default to not set a new value */
+
+	sscanf(buf, "%d", &enabled);
+
+	switch(enabled) /* Accept only if 0 or 1 */
+	{ 
+		case 0:
+		case 1:		
+			led_enable_fade = enabled;
+		default:	
+			return count;
+	}
+}
+
+static ssize_t show_led_intensity(struct device *dev,
+                    struct device_attribute *attr, char *buf)
+{
+	switch(led_intensity) 
+	{
+		case  0:	
+			return sprintf(buf, "%d - Stock intensity\n", led_intensity);
+		default:
+			return sprintf(buf, "%d - Custom intensity\n", led_intensity);
+	}
+}
+
+static ssize_t store_led_intensity(struct device *dev,
+					struct device_attribute *devattr,
+					const char *buf, size_t count)
+{
+	int new_intensity = -1; /* default to not set a new value */
+
+	sscanf(buf, "%d", &new_intensity);
+
+	/* check for valid data */
+	if (new_intensity >= 0 && new_intensity <= LED_INTENSITY_MAX)
+		led_intensity = new_intensity;
+
+	return count;
+}
+
+static ssize_t show_led_speed(struct device *dev,
+                    struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d - speed\n", led_speed);
+}
+
+static ssize_t store_led_speed(struct device *dev,
+					struct device_attribute *devattr,
+					const char *buf, size_t count)
+{
+	int new_led_speed = -1; /* default to not set a new value */
+
+	sscanf(buf, "%d", &new_led_speed);
+
+	/* check for valid data */
+	if ((new_led_speed >= 0) && (new_led_speed <= LED_SPEED_MAX))
+		led_speed = new_led_speed;
+		
 	return count;
 }
 
@@ -2707,6 +2937,9 @@ static DEVICE_ATTR(ramp_step_ms, 0664, NULL, ramp_step_ms_store);
 static DEVICE_ATTR(lut_flags, 0664, NULL, lut_flags_store);
 static DEVICE_ATTR(duty_pcts, 0664, NULL, duty_pcts_store);
 static DEVICE_ATTR(blink, 0664, NULL, blink_store);
+static DEVICE_ATTR(led_fade, S_IWUSR | S_IRUGO, show_led_fade, store_led_fade);
+static DEVICE_ATTR(led_intensity, S_IWUSR | S_IRUGO, show_led_intensity, store_led_intensity);
+static DEVICE_ATTR(led_speed, S_IWUSR | S_IRUGO, show_led_speed, store_led_speed);
 
 static struct attribute *led_attrs[] = {
 	&dev_attr_led_mode.attr,
@@ -2730,7 +2963,9 @@ static struct attribute *lpg_attrs[] = {
 	&dev_attr_ramp_step_ms.attr,
 	&dev_attr_lut_flags.attr,
 	&dev_attr_duty_pcts.attr,
-	NULL
+	&dev_attr_led_fade.attr,
+	&dev_attr_led_intensity.attr,
+	&dev_attr_led_speed.attr,	NULL
 };
 
 static struct attribute *blink_attrs[] = {

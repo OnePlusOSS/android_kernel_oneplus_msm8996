@@ -13,6 +13,7 @@
 #include <linux/types.h>
 #include <linux/project_info.h>
 
+#include <soc/qcom/socinfo.h>
 #include <soc/qcom/smem.h>
 
 #include <linux/gpio.h>
@@ -31,6 +32,7 @@ struct project_info{
        uint32  ddr_raw;
        uint32  ddr_column;
        uint32  ddr_reserve_info;
+       uint32  platform_id;
 };
 
 struct component_info{
@@ -60,6 +62,7 @@ static DEVICE_ATTR(ddr_raw, S_IRUGO, project_info_get, NULL);
 static DEVICE_ATTR(ddr_column, S_IRUGO, project_info_get, NULL);
 static DEVICE_ATTR(ddr_reserve_info, S_IRUGO, project_info_get, NULL);
 static DEVICE_ATTR(secboot_status, S_IRUGO, project_info_get, NULL);
+static DEVICE_ATTR(platform_id, S_IRUGO, project_info_get, NULL);
 
 uint32 get_secureboot_fuse_status(void)
 {
@@ -104,6 +107,8 @@ static ssize_t project_info_get(struct device *dev,
 		//return sprintf(buf, "%d\n", project_info_desc->ddr_reserve_info);
 		return sprintf(buf, "%d\n",get_secureboot_fuse_status());
 	}
+	if (attr == &dev_attr_platform_id)
+		return sprintf(buf, "%d\n", socinfo_get_id());
 
 	return -EINVAL;
 
@@ -122,6 +127,7 @@ static struct attribute *project_info_sysfs_entries[] = {
 	&dev_attr_ddr_column.attr,
 	&dev_attr_ddr_reserve_info.attr,
 	&dev_attr_secboot_status.attr,
+	&dev_attr_platform_id.attr,
 	NULL,
 };
 
@@ -354,6 +360,7 @@ int __init init_project_info(void)
 {
 	static bool project_info_init_done;
 	int ddr_size;
+	int fw_version = 1;
 
 	if (project_info_init_done)
 		return 0;
@@ -363,12 +370,24 @@ int __init init_project_info(void)
 				0,
 				SMEM_ANY_HOST_FLAG);
 
-	if (IS_ERR_OR_NULL(project_info_desc))
+	if (IS_ERR_OR_NULL(project_info_desc)) {
+		/* Retry for old fw version */
+		project_info_desc = smem_find(SMEM_PROJECT_INFO,
+					sizeof(struct project_info) -
+					sizeof(uint32), 0,
+					SMEM_ANY_HOST_FLAG);
+
+		fw_version = 0;
+	}
+
+	if (IS_ERR_OR_NULL(project_info_desc)) {
 		pr_err("%s: get project_info failure\n",__func__);
-	else
-		pr_err("%s: project_name: %s hw_version: %d rf_v1: %d rf_v2: %d: rf_v3: %d\n",
-						__func__, project_info_desc->project_name, project_info_desc->hw_version,
-								project_info_desc->rf_v1, project_info_desc->rf_v2, project_info_desc->rf_v3);
+		goto error;
+	} else {
+		pr_info("%s: project_name: %s, fw_version: %d, hw_version: %d, rf_v1: %d, rf_v2: %d, rf_v3: %d\n",
+			__func__, project_info_desc->project_name, fw_version, project_info_desc->hw_version,
+			project_info_desc->rf_v1, project_info_desc->rf_v2, project_info_desc->rf_v3);
+	}
 
 	//snprintf(mainboard_version, sizeof(mainboard_version), "%d",project_info_desc->hw_version);
 	switch(project_info_desc->hw_version) {
@@ -429,6 +448,7 @@ int __init init_project_info(void)
 	snprintf(ddr_version, sizeof(ddr_version), "size_%dG_r_%d_c_%d", ddr_size, project_info_desc->ddr_raw,project_info_desc->ddr_column);
 	push_component_info(DDR,ddr_version, ddr_manufacture);
 
+error:
 	project_info_init_done = true;
 
 	return 0;

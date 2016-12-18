@@ -576,8 +576,12 @@ EXPORT_SYMBOL_GPL(proc_get_parent_data);
 
 void proc_remove(struct proc_dir_entry *de)
 {
-	if (de)
-		remove_proc_subtree(de->name, de->parent);
+	int rc;
+	if (de){
+		rc = remove_proc_subtree(de->name, de->parent);
+		if(rc < 0)
+			pr_info("proc_remove %s fail\n",de->name);
+	}
 }
 EXPORT_SYMBOL(proc_remove);
 

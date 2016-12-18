@@ -1276,6 +1276,12 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 
 	*populate = 0;
 
+#ifdef CONFIG_SDCARD_FS
+/* liochen@filesystem, 2016/08/09, Support sdcardfs filesystem in kernel */
+	while (file && (file->f_mode & FMODE_NONMAPPABLE))
+		file = file->f_op->get_lower_file(file);
+#endif
+
 #ifdef CONFIG_MSM_APP_SETTINGS
 	if (use_app_setting)
 		apply_app_setting_bit(file);
