@@ -383,6 +383,21 @@ static inline ssize_t synaptics_rmi4_store_error(struct device *dev,
 	return -EPERM;
 }
 
+static inline int secure_memcpy(unsigned char *dest, unsigned int dest_size,
+		const unsigned char *src, unsigned int src_size,
+		unsigned int count)
+{
+	if (dest == NULL || src == NULL)
+		return -EINVAL;
+
+	if (count > dest_size || count > src_size)
+		return -EINVAL;
+
+	memcpy((void *)dest, (const void *)src, count);
+
+	return 0;
+}
+
 static inline void batohs(unsigned short *dest, unsigned char *src)
 {
 	*dest = src[1] * 0x100 + src[0];
