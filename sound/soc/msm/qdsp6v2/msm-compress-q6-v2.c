@@ -90,7 +90,8 @@ const DECLARE_TLV_DB_LINEAR(msm_compr_vol_gain, 0,
  * 40 = size of dts_eagle_param_desc + module_id cast to 64 bits
  */
 #define DTS_EAGLE_MAX_PARAM_SIZE_FOR_ALSA ((64 * 4) - 40)
-
+//use 24bits to get rid of 16bits innate noise
+int gis_24bits = 0;
 struct msm_compr_gapless_state {
 	bool set_next_stream_id;
 	int32_t stream_opened[MAX_NUMBER_OF_STREAMS];
@@ -986,6 +987,13 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 		bits_per_sample = 24;
 	else if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S32_LE)
 		bits_per_sample = 32;
+    //use 24bits to get rid of 16bits innate noise
+    //mark by globale value to open adm 24bits
+    //lifei modified in 20160430
+    if (prtd->codec_param.codec.bit_rate == 24) {
+        bits_per_sample = 24;
+        gis_24bits = 1;
+    }
 
 	if (prtd->compr_passthr != LEGACY_PCM) {
 		ret = q6asm_open_write_compressed(ac, prtd->codec,
@@ -1553,7 +1561,13 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 	unsigned long flags;
 	int stream_id;
 	uint32_t stream_index;
-	uint16_t bits_per_sample = 16;
+    //use 24bits to get rid of 16bits innate noise
+    //mark by globale value to open adm 24bits
+    //lifei modified in 20160430
+    uint16_t bits_per_sample = 16;
+    if (prtd->codec_param.codec.bit_rate == 24) {
+        bits_per_sample = 24;
+    }
 
 	if (cstream->direction != SND_COMPRESS_PLAYBACK) {
 		pr_err("%s: Unsupported stream type\n", __func__);
@@ -2532,7 +2546,10 @@ static int msm_compr_audio_effects_config_get(struct snd_kcontrol *kcontrol,
 	cstream = pdata->cstream[fe_id];
 	audio_effects = pdata->audio_effects[fe_id];
 	if (!cstream || !audio_effects) {
-		pr_err("%s: stream or effects inactive\n", __func__);
+        /* If ALSA framework trys to list all controls, too many errors are printed */
+        /* in some cases. Without allocating resources this error is expected. */
+        /* Reduce error level to debug. */
+        pr_debug("%s: stream or effects inactive\n", __func__);
 		return -EINVAL;
 	}
 	prtd = cstream->runtime->private_data;

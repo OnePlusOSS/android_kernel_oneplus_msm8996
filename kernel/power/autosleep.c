@@ -22,7 +22,27 @@ static struct workqueue_struct *autosleep_wq;
  */
 static DEFINE_MUTEX(autosleep_lock);
 static struct wakeup_source *autosleep_ws;
+static void wakelock_printk(struct work_struct *work);
+static struct workqueue_struct *wakelock_printk_work_queue = NULL;
+static DECLARE_DELAYED_WORK(wakelock_printk_work, wakelock_printk);
+static void wakelock_printk(struct work_struct *work)
+{
+	pm_print_active_wakeup_sources();
+	queue_delayed_work(wakelock_printk_work_queue, &wakelock_printk_work, msecs_to_jiffies(60*1000));
+}
 
+void wakelock_printk_control(int on)
+{
+	if (wakelock_printk_work_queue == NULL) {
+		printk(KERN_INFO"%s: wakelock_printk_work_queue is NULL, do nothing\n", __func__);
+		return;
+	}
+	if (on) {
+		queue_delayed_work(wakelock_printk_work_queue, &wakelock_printk_work, msecs_to_jiffies(60*1000));
+	} else {
+		cancel_delayed_work(&wakelock_printk_work);
+	}
+}
 static void try_to_suspend(struct work_struct *work)
 {
 	unsigned int initial_count, final_count;
@@ -93,7 +113,7 @@ int pm_autosleep_set_state(suspend_state_t state)
 	if (state >= PM_SUSPEND_MAX)
 		return -EINVAL;
 #endif
-
+    wakelock_printk_control(0);
 	__pm_stay_awake(autosleep_ws);
 
 	mutex_lock(&autosleep_lock);
@@ -110,11 +130,16 @@ int pm_autosleep_set_state(suspend_state_t state)
 	}
 
 	mutex_unlock(&autosleep_lock);
+	wakelock_printk_control(1);
 	return 0;
 }
 
 int __init pm_autosleep_init(void)
 {
+	wakelock_printk_work_queue = create_singlethread_workqueue("wakelock_printk");
+	if (wakelock_printk_work_queue == NULL)
+		printk(KERN_INFO "%s: failed to create work queue\n", __func__);
+	wakelock_printk_control(1);
 	autosleep_ws = wakeup_source_register("autosleep");
 	if (!autosleep_ws)
 		return -ENOMEM;

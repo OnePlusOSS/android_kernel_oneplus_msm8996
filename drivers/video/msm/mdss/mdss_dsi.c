@@ -33,6 +33,7 @@
 #include "mdss_debug.h"
 #include "mdss_dsi_phy.h"
 #include "mdss_dba_utils.h"
+#include <linux/param_rw.h>
 
 #define XO_CLK_RATE	19200000
 #define CMDLINE_DSI_CTL_NUM_STRING_LEN 2
@@ -271,7 +272,7 @@ static int mdss_dsi_regulator_init(struct platform_device *pdev,
 
 	return rc;
 }
-
+extern int vendor_lcd_power_on(struct mdss_panel_data *pdata, int enable);
 static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 {
 	int ret = 0;
@@ -302,6 +303,8 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 		pr_err("%s: failed to disable vregs for %s\n",
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 
+	vendor_lcd_power_on(pdata, 0); 
+
 end:
 	return ret;
 }
@@ -327,6 +330,8 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 		return ret;
 	}
+
+	vendor_lcd_power_on(pdata, 1); 
 
 	/*
 	 * If continuous splash screen feature is enabled, then we need to
@@ -622,6 +627,7 @@ static int mdss_dsi_get_panel_cfg(char *panel_cfg,
 struct buf_data {
 	char *buf; /* cmd buf */
 	int blen; /* cmd buf length */
+	struct dsi_panel_cmds *on_cmds;
 	char *string_buf; /* cmd buf as string, 3 bytes per number */
 	int sblen; /* string buffer length */
 	int sync_flag;
@@ -808,6 +814,8 @@ static ssize_t mdss_dsi_cmd_write(struct file *file, const char __user *p,
 static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 {
 	struct buf_data *pcmds = file->private_data;
+	struct dsi_panel_cmds *on_pcmds = pcmds->on_cmds;
+	int cnt;
 	int blen, len, i;
 	char *buf, *bufp, *bp;
 	struct dsi_ctrl_hdr *dchdr;
@@ -843,6 +851,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 	/* Scan dcs commands */
 	bp = buf;
 	len = blen;
+	cnt = 0;
 	while (len >= sizeof(*dchdr)) {
 		dchdr = (struct dsi_ctrl_hdr *)bp;
 		dchdr->dlen = ntohs(dchdr->dlen);
@@ -856,6 +865,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 		len -= sizeof(*dchdr);
 		bp += dchdr->dlen;
 		len -= dchdr->dlen;
+		cnt++;
 	}
 	if (len != 0) {
 		pr_err("%s: dcs_cmd=%x len=%d error!\n", __func__,
@@ -865,13 +875,38 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 	}
 
 	if (pcmds->sync_flag) {
+		kfree(on_pcmds->buf);
 		pcmds->buf = buf;
 		pcmds->blen = blen;
 		pcmds->sync_flag = 0;
 	} else {
+		kfree(on_pcmds->cmds);
 		kfree(pcmds->buf);
 		pcmds->buf = buf;
 		pcmds->blen = blen;
+	}
+	on_pcmds->cmds = kzalloc(cnt * sizeof(struct dsi_cmd_desc),
+						GFP_KERNEL);
+	if (!on_pcmds->cmds)
+		{
+			pr_err("alloc memory fail\n");
+			return 0;
+		}
+
+	on_pcmds->cmd_cnt = cnt;
+	on_pcmds->buf = buf;
+	on_pcmds->blen = blen;
+
+	bp = buf;
+	len = blen;
+	for (i = 0; i < cnt; i++) {
+		dchdr = (struct dsi_ctrl_hdr *)bp;
+		len -= sizeof(*dchdr);
+		bp += sizeof(*dchdr);
+		on_pcmds->cmds[i].dchdr = *dchdr;
+		on_pcmds->cmds[i].payload = bp;
+		bp += dchdr->dlen;
+		len -= dchdr->dlen;
 	}
 	return 0;
 }
@@ -882,13 +917,13 @@ static const struct file_operations mdss_dsi_cmd_fop = {
 	.write = mdss_dsi_cmd_write,
 	.flush = mdss_dsi_cmd_flush,
 };
-
 struct dentry *dsi_debugfs_create_dcs_cmd(const char *name, umode_t mode,
 				struct dentry *parent, struct buf_data *cmd,
-				struct dsi_panel_cmds ctrl_cmds)
+				struct dsi_panel_cmds *ctrl_cmds)
 {
-	cmd->buf = ctrl_cmds.buf;
-	cmd->blen = ctrl_cmds.blen;
+	cmd->buf = ctrl_cmds->buf;
+	cmd->blen = ctrl_cmds->blen;
+	cmd->on_cmds = ctrl_cmds;
 	cmd->string_buf = NULL;
 	cmd->sblen = 0;
 	cmd->sync_flag = 1;
@@ -896,7 +931,6 @@ struct dentry *dsi_debugfs_create_dcs_cmd(const char *name, umode_t mode,
 	return debugfs_create_file(name, mode, parent,
 				   cmd, &mdss_dsi_cmd_fop);
 }
-
 #define DEBUGFS_CREATE_DCS_CMD(name, node, cmd, ctrl_cmd) \
 	dsi_debugfs_create_dcs_cmd(name, 0644, node, cmd, ctrl_cmd)
 
@@ -937,12 +971,10 @@ static int mdss_dsi_debugfs_setup(struct mdss_panel_data *pdata,
 		&dfs_ctrl->on_cmds.link_state, &mdss_dsi_cmd_state_fop);
 	debugfs_create_file("dsi_off_cmd_state", 0644, dfs->root,
 		&dfs_ctrl->off_cmds.link_state, &mdss_dsi_cmd_state_fop);
-
 	DEBUGFS_CREATE_DCS_CMD("dsi_on_cmd", dfs->root, &dfs->on_cmd,
-				ctrl_pdata->on_cmds);
+				&ctrl_pdata->on_cmds);
 	DEBUGFS_CREATE_DCS_CMD("dsi_off_cmd", dfs->root, &dfs->off_cmd,
-				ctrl_pdata->off_cmds);
-
+				&ctrl_pdata->off_cmds);
 	debugfs_create_u32("dsi_err_counter", 0644, dfs->root,
 			   &dfs_ctrl->err_cont.max_err_index);
 	debugfs_create_u32("dsi_err_time_delta", 0644, dfs->root,
@@ -1123,6 +1155,7 @@ static int mdss_dsi_off(struct mdss_panel_data *pdata, int power_state)
 		pr_err("%s: Invalid input data\n", __func__);
 		return -EINVAL;
 	}
+		printk("%s start\n",__func__);
 
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
@@ -1184,6 +1217,7 @@ panel_power_ctrl:
 	/* Initialize Max Packet size for DCS reads */
 	ctrl_pdata->cur_max_pkt_size = 0;
 end:
+		printk("%s end\n",__func__);
 	pr_debug("%s-:\n", __func__);
 
 	return ret;
@@ -1297,6 +1331,7 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 	struct mipi_panel_info *mipi;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	int cur_power_state;
+	printk("%s start\n",__func__);
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -1315,6 +1350,38 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 
 	pinfo = &pdata->panel_info;
 	mipi = &pdata->panel_info.mipi;
+
+	if (!ctrl_pdata->SRGB_first_on){
+		ctrl_pdata->SRGB_first_on = 1;
+		get_param_lcm_srgb_mode(&(ctrl_pdata->SRGB_mode));
+
+		if(1 == ctrl_pdata->SRGB_mode)
+			{
+			mdss_dsi_panel_set_srgb_mode(ctrl_pdata,ctrl_pdata->SRGB_mode);
+			}
+		else
+			pr_err("%s:srgb mode %d\n",__func__,ctrl_pdata->SRGB_mode);
+	}
+
+	if (!ctrl_pdata->Adobe_RGB_first_on){
+		ctrl_pdata->Adobe_RGB_first_on = 1;
+		get_param_lcm_adobe_rgb_mode(&(ctrl_pdata->Adobe_RGB_mode));
+
+		if(1 == ctrl_pdata->Adobe_RGB_mode)
+			mdss_dsi_panel_set_adobe_rgb_mode(ctrl_pdata,ctrl_pdata->Adobe_RGB_mode);
+		else
+			pr_err("%s:srgb mode %d\n",__func__,ctrl_pdata->Adobe_RGB_mode);
+	}
+
+	if (!ctrl_pdata->dci_p3_first_on){
+		ctrl_pdata->dci_p3_first_on = 1;
+		get_param_lcm_dci_p3_mode(&(ctrl_pdata->dci_p3_mode));
+
+		if(1 == ctrl_pdata->dci_p3_mode)
+			mdss_dsi_panel_set_dci_p3_mode(ctrl_pdata,ctrl_pdata->dci_p3_mode);
+		else
+			pr_err("%s:srgb mode %d\n",__func__,ctrl_pdata->dci_p3_mode);
+	}
 
 	if (mdss_dsi_is_panel_on_interactive(pdata)) {
 		/*
@@ -1377,6 +1444,7 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 	 * data lanes for LP11 init
 	 */
 	if (mipi->lp11_init) {
+		usleep_range(5 * 1000,5 * 1000);
 		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
 			pr_debug("reset enable: pinctrl not enabled\n");
 		mdss_dsi_panel_reset(pdata, 1);
@@ -1399,6 +1467,7 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 				  MDSS_DSI_ALL_CLKS, MDSS_DSI_CLK_OFF);
 
 end:
+	printk("%s end\n",__func__);
 	pr_debug("%s-:\n", __func__);
 	return ret;
 }
@@ -1522,10 +1591,11 @@ static int mdss_dsi_unblank(struct mdss_panel_data *pdata)
 	if ((pdata->panel_info.type == MIPI_CMD_PANEL) &&
 		mipi->vsync_enable && mipi->hw_vsync_mode) {
 		mdss_dsi_set_tear_on(ctrl_pdata);
-		if (mdss_dsi_is_te_based_esd(ctrl_pdata))
-			enable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
+		if (mdss_dsi_is_te_based_esd(ctrl_pdata)){
+				if (mdss_dsi_is_te_based_esd(ctrl_pdata))
+					schedule_delayed_work(&(ctrl_pdata->techeck_work), msecs_to_jiffies(3000));
+			}
 	}
-
 	ctrl_pdata->ctrl_state |= CTRL_STATE_PANEL_INIT;
 
 error:
@@ -1594,9 +1664,9 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata, int power_state)
 	if ((pdata->panel_info.type == MIPI_CMD_PANEL) &&
 		mipi->vsync_enable && mipi->hw_vsync_mode) {
 		if (mdss_dsi_is_te_based_esd(ctrl_pdata)) {
-				disable_irq(gpio_to_irq(
-					ctrl_pdata->disp_te_gpio));
-				atomic_dec(&ctrl_pdata->te_irq_ready);
+			if (mdss_dsi_is_te_based_esd(ctrl_pdata))
+				cancel_delayed_work_sync(&(ctrl_pdata->techeck_work));
+			atomic_dec(&ctrl_pdata->te_irq_ready);
 		}
 		mdss_dsi_set_tear_off(ctrl_pdata);
 	}
@@ -2615,6 +2685,44 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 					&ctrl_pdata->dba_work, HZ);
 		}
 		break;
+	case MDSS_EVENT_PANEL_SET_ACL:
+		ctrl_pdata->acl_mode = (int)(unsigned long) arg;
+		mdss_dsi_panel_set_acl(ctrl_pdata,(int)(unsigned long) ctrl_pdata->acl_mode);
+		break;
+	case MDSS_EVENT_PANEL_GET_ACL:
+		rc = ctrl_pdata->acl_mode;
+		break;
+	case MDSS_EVENT_PANEL_SET_MAX_BRIGHTNESS:
+		ctrl_pdata->max_brightness_level= (int)(unsigned long) arg;
+		mdss_dsi_panel_set_max_brightness(ctrl_pdata,(int)(unsigned long) ctrl_pdata->max_brightness_level);
+		break;
+	case MDSS_EVENT_PANEL_GET_MAX_BRIGHTNESS:
+		rc = mdss_dsi_panel_get_max_brightness(ctrl_pdata);
+		break;
+	case MDSS_EVENT_PANEL_SET_SRGB_MODE:
+		ctrl_pdata->SRGB_mode= (int)(unsigned long) arg;
+		set_param_lcm_srgb_mode(&(ctrl_pdata->SRGB_mode));
+		mdss_dsi_panel_set_srgb_mode(ctrl_pdata,(int)(unsigned long) ctrl_pdata->SRGB_mode);
+		break;
+	case MDSS_EVENT_PANEL_GET_SRGB_MODE:
+		rc = mdss_dsi_panel_get_srgb_mode(ctrl_pdata);
+		break;
+	case MDSS_EVENT_PANEL_SET_ADOBE_RGB_MODE:
+		ctrl_pdata->Adobe_RGB_mode= (int)(unsigned long) arg;
+		set_param_lcm_srgb_mode(&(ctrl_pdata->Adobe_RGB_mode));
+		mdss_dsi_panel_set_adobe_rgb_mode(ctrl_pdata,(int)(unsigned long) ctrl_pdata->Adobe_RGB_mode);
+		break;
+	case MDSS_EVENT_PANEL_GET_ADOBE_RGB_MODE:
+		rc = mdss_dsi_panel_get_adobe_rgb_mode(ctrl_pdata);
+		break;
+	case MDSS_EVENT_PANEL_SET_DCI_P3_MODE:
+		ctrl_pdata->dci_p3_mode= (int)(unsigned long) arg;
+		set_param_lcm_srgb_mode(&(ctrl_pdata->dci_p3_mode));
+		mdss_dsi_panel_set_dci_p3_mode(ctrl_pdata,(int)(unsigned long) ctrl_pdata->dci_p3_mode);
+		break;
+	case MDSS_EVENT_PANEL_GET_DCI_P3_MODE:
+		rc = mdss_dsi_panel_get_dci_p3_mode(ctrl_pdata);
+		break;
 	default:
 		pr_debug("%s: unhandled event=%d\n", __func__, event);
 		break;
@@ -2961,11 +3069,6 @@ static int mdss_dsi_cont_splash_config(struct mdss_panel_info *pinfo,
 		ctrl_pdata->ctrl_state |= (CTRL_STATE_PANEL_INIT |
 			CTRL_STATE_MDP_ACTIVE | CTRL_STATE_DSI_ACTIVE);
 
-		/*
-		 * MDP client removes this extra vote during splash reconfigure
-		 * for command mode panel from interface. DSI removes the vote
-		 * during suspend-resume for video mode panel.
-		 */
 		if (ctrl_pdata->panel_data.panel_info.type == MIPI_CMD_PANEL)
 			clk_handle = ctrl_pdata->mdp_clk_handle;
 		else
@@ -2990,6 +3093,29 @@ static int mdss_dsi_cont_splash_config(struct mdss_panel_info *pinfo,
 	}
 
 	return rc;
+}
+static void techeck_work_func( struct work_struct *work )
+{
+
+	struct delayed_work *dw = to_delayed_work(work);
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = container_of(dw, struct mdss_dsi_ctrl_pdata,
+		techeck_work);
+
+	int ret = 0;
+	//pr_err("techeck_work_func\n");
+	reinit_completion(&(ctrl_pdata->te_comp));
+	enable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
+	if (!atomic_read(&ctrl_pdata->te_irq_ready)){
+	atomic_inc(&ctrl_pdata->te_irq_ready);
+	}
+	ret = wait_for_completion_killable_timeout(&(ctrl_pdata->te_comp), msecs_to_jiffies(500));
+	if(ret == 0) {
+		pr_err("te wait timeout\n");
+		disable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
+		return;
+	}
+	disable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
+	schedule_delayed_work(&(ctrl_pdata->techeck_work), msecs_to_jiffies(3000));
 }
 
 static int mdss_dsi_get_bridge_chip_params(struct mdss_panel_info *pinfo,
@@ -3145,6 +3271,8 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 	}
 
 	if (mdss_dsi_is_te_based_esd(ctrl_pdata)) {
+		init_completion(&(ctrl_pdata->te_comp));
+		INIT_DELAYED_WORK(&(ctrl_pdata->techeck_work), techeck_work_func );
 		rc = devm_request_irq(&pdev->dev,
 			gpio_to_irq(ctrl_pdata->disp_te_gpio),
 			hw_vsync_handler, IRQF_TRIGGER_FALLING,
@@ -3921,6 +4049,12 @@ static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio))
 		pr_err("%s:%d, reset gpio not specified\n",
 						__func__, __LINE__);
+
+	ctrl_pdata->lcd_power_1v8_en = of_get_named_gpio(ctrl_pdev->dev.of_node,
+				 "qcom,lcd-vddi-en-gpio", 0);
+		if (!gpio_is_valid(ctrl_pdata->lcd_power_1v8_en))
+			pr_err("%s:%d, lcd_power_1v8_en gpio not specified\n",
+							__func__, __LINE__);
 
 	if (pinfo->mode_gpio_state != MODE_GPIO_NOT_VALID) {
 

@@ -129,6 +129,7 @@ struct kmemleak_scan_area {
 #define KMEMLEAK_GREY	0
 #define KMEMLEAK_BLACK	-1
 
+int oem_kmemleak_flag;
 /*
  * Structure holding the metadata for each allocated memory block.
  * Modifications to such objects should be made while holding the
@@ -1836,7 +1837,8 @@ void __init kmemleak_init(void)
 {
 	int i;
 	unsigned long flags;
-
+//++add by lyb@BSP instead CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF with cmdline kmemleak_detect
+    if(0 == oem_kmemleak_flag){
 #ifdef CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF
 	if (!kmemleak_skip_disable) {
 		kmemleak_early_log = 0;
@@ -1844,6 +1846,10 @@ void __init kmemleak_init(void)
 		return;
 	}
 #endif
+    }
+
+	pr_info("Kernel memory leak detector enabled\n");
+//-- add by lyb@BSP instead CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF with cmdline kmemleak_detect
 
 	jiffies_min_age = msecs_to_jiffies(MSECS_MIN_AGE);
 	jiffies_scan_wait = msecs_to_jiffies(SECS_SCAN_WAIT * 1000);
@@ -1922,6 +1928,10 @@ static int __init kmemleak_late_init(void)
 {
 	struct dentry *dentry;
 
+		if (!kmemleak_skip_disable) {
+		kmemleak_disable();
+		return 0;
+	}
 	kmemleak_initialized = 1;
 
 	if (kmemleak_error) {
@@ -1948,3 +1958,24 @@ static int __init kmemleak_late_init(void)
 	return 0;
 }
 late_initcall(kmemleak_late_init);
+
+//++add by lyb@BSP for kmemleak detect
+static int __init kmem_leak_detect(char *str)
+{
+    if(str == NULL){
+        return -1;
+    }
+
+	if (strcmp(str, "true") == 0){
+		kmemleak_skip_disable = 1;
+        oem_kmemleak_flag=1;
+		}
+	else {
+	    kmemleak_disable();
+	    oem_kmemleak_flag=0;
+        }
+    return 0;
+}
+
+early_param("kmemleak_detect", kmem_leak_detect);
+//-- add by lyb@BSP for kmemleak

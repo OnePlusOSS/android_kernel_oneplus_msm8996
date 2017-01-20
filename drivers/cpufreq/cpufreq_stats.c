@@ -139,6 +139,9 @@ void acct_update_power(struct task_struct *task, cputime_t cputime) {
 	if (!powerstats || !stats)
 		return;
 
+    if (stats->last_index == -1)
+       return;
+
 	curr = powerstats->curr[stats->last_index];
 	if (task->cpu_power != ULLONG_MAX)
 		task->cpu_power += curr * cputime_to_usecs(cputime);
@@ -605,8 +608,11 @@ static int cpufreq_stat_notifier_policy(struct notifier_block *nb,
 	}
 
 	table = cpufreq_frequency_get_table(cpu);
-	if (!table)
+	if (!table) {
+		if (val == CPUFREQ_REMOVE_POLICY)
+			__cpufreq_stats_free_table(policy);
 		return 0;
+	}
 
 	cpufreq_for_each_valid_entry(pos, table)
 		count++;

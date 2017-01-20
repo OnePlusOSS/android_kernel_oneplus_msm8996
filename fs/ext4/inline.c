@@ -1623,7 +1623,7 @@ struct buffer_head *ext4_find_inline_entry(struct inode *dir,
 						EXT4_INLINE_DOTDOT_SIZE;
 	inline_size = EXT4_MIN_INLINE_DATA_SIZE - EXT4_INLINE_DOTDOT_SIZE;
 	ret = search_dir(iloc.bh, inline_start, inline_size,
-			 dir, d_name, 0, res_dir);
+			 dir, d_name, 0, res_dir, NULL);
 	if (ret == 1)
 		goto out_find;
 	if (ret < 0)
@@ -1636,7 +1636,7 @@ struct buffer_head *ext4_find_inline_entry(struct inode *dir,
 	inline_size = ext4_get_inline_size(dir) - EXT4_MIN_INLINE_DATA_SIZE;
 
 	ret = search_dir(iloc.bh, inline_start, inline_size,
-			 dir, d_name, 0, res_dir);
+			 dir, d_name, 0, res_dir, NULL);
 	if (ret == 1)
 		goto out_find;
 

@@ -25,6 +25,7 @@
 #include <linux/timer.h>
 #include <linux/kernel.h>
 #include <linux/workqueue.h>
+#include <linux/clk/msm-clk.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 #include <media/msmb_camera.h>
@@ -810,13 +811,6 @@ static int cpp_init_hardware(struct cpp_device *cpp_dev)
 	int rc = 0;
 	uint32_t vbif_version;
 
-	rc = cam_config_ahb_clk(NULL, 0, CAM_AHB_CLIENT_CPP,
-			CAM_AHB_SVS_VOTE);
-	if (rc < 0) {
-		pr_err("%s: failed to vote for AHB\n", __func__);
-		goto ahb_vote_fail;
-	}
-
 	rc = msm_camera_regulator_enable(cpp_dev->cpp_vdd,
 		cpp_dev->num_reg, true);
 	if (rc < 0) {
@@ -835,6 +829,13 @@ static int cpp_init_hardware(struct cpp_device *cpp_dev)
 	if (rc < 0) {
 		pr_err("%s: clk enable failed\n", __func__);
 		goto clk_failed;
+	}
+
+	rc = cam_config_ahb_clk(NULL, 0, CAM_AHB_CLIENT_CPP,
+			CAM_AHB_SVS_VOTE);
+	if (rc < 0) {
+		pr_err("%s: failed to vote for AHB\n", __func__);
+		goto ahb_vote_fail;
 	}
 
 	if (cpp_dev->state != CPP_STATE_BOOT) {
@@ -900,16 +901,16 @@ static int cpp_init_hardware(struct cpp_device *cpp_dev)
 pwr_collapse_reset:
 	msm_cpp_update_gdscr_status(cpp_dev, false);
 req_irq_fail:
+	if (cam_config_ahb_clk(NULL, 0, CAM_AHB_CLIENT_CPP,
+		CAM_AHB_SUSPEND_VOTE) < 0)
+		pr_err("%s: failed to remove vote for AHB\n", __func__);
+ahb_vote_fail:
 	msm_camera_clk_enable(&cpp_dev->pdev->dev, cpp_dev->clk_info,
 		cpp_dev->cpp_clk, cpp_dev->num_clks, false);
 clk_failed:
 	msm_camera_regulator_enable(cpp_dev->cpp_vdd,
 		cpp_dev->num_reg, false);
 reg_enable_failed:
-	if (cam_config_ahb_clk(NULL, 0, CAM_AHB_CLIENT_CPP,
-		CAM_AHB_SUSPEND_VOTE) < 0)
-		pr_err("%s: failed to remove vote for AHB\n", __func__);
-ahb_vote_fail:
 	return rc;
 }
 
@@ -923,6 +924,9 @@ static void cpp_release_hardware(struct cpp_device *cpp_dev)
 	}
 	msm_cpp_delete_buff_queue(cpp_dev);
 	msm_cpp_update_gdscr_status(cpp_dev, false);
+	if (cam_config_ahb_clk(NULL, 0, CAM_AHB_CLIENT_CPP,
+		CAM_AHB_SUSPEND_VOTE) < 0)
+		pr_err("%s: failed to remove vote for AHB\n", __func__);
 	msm_camera_clk_enable(&cpp_dev->pdev->dev, cpp_dev->clk_info,
 		cpp_dev->cpp_clk, cpp_dev->num_clks, false);
 	msm_camera_regulator_enable(cpp_dev->cpp_vdd, cpp_dev->num_reg, false);
@@ -932,9 +936,6 @@ static void cpp_release_hardware(struct cpp_device *cpp_dev)
 	}
 	cpp_dev->stream_cnt = 0;
 
-	if (cam_config_ahb_clk(NULL, 0, CAM_AHB_CLIENT_CPP,
-		CAM_AHB_SUSPEND_VOTE) < 0)
-		pr_err("%s: failed to remove vote for AHB\n", __func__);
 }
 
 static int32_t cpp_load_fw(struct cpp_device *cpp_dev, char *fw_name_bin)

@@ -2000,19 +2000,19 @@ static int send_notification(struct rq *rq, int check_pred, int check_groups)
 		if (freq_required < cur_freq + sysctl_sched_pred_alert_freq)
 			return 0;
 	} else {
-		read_lock(&related_thread_group_lock);
+		read_lock_irqsave(&related_thread_group_lock, flags);
 		/*
 		 * Protect from concurrent update of rq->prev_runnable_sum and
 		 * group cpu load
 		 */
-		raw_spin_lock_irqsave(&rq->lock, flags);
+		raw_spin_lock(&rq->lock);
 		if (check_groups)
 			_group_load_in_cpu(cpu_of(rq), &group_load, NULL);
 
 		new_load = rq->prev_runnable_sum + group_load;
 
-		raw_spin_unlock_irqrestore(&rq->lock, flags);
-		read_unlock(&related_thread_group_lock);
+		raw_spin_unlock(&rq->lock);
+		read_unlock_irqrestore(&related_thread_group_lock, flags);
 
 		cur_freq = load_to_freq(rq, rq->old_busy_time);
 		freq_required = load_to_freq(rq, new_load);
@@ -3296,14 +3296,16 @@ void sched_get_cpus_busy(struct sched_load *busy,
 	if (unlikely(cpus == 0))
 		return;
 
+	local_irq_save(flags);
+
+	read_lock(&related_thread_group_lock);
+
 	/*
 	 * This function could be called in timer context, and the
 	 * current task may have been executing for a long time. Ensure
 	 * that the window stats are current by doing an update.
 	 */
-	read_lock(&related_thread_group_lock);
 
-	local_irq_save(flags);
 	for_each_cpu(cpu, query_cpus)
 		raw_spin_lock(&cpu_rq(cpu)->lock);
 
@@ -3386,9 +3388,10 @@ skip_early:
 
 	for_each_cpu(cpu, query_cpus)
 		raw_spin_unlock(&(cpu_rq(cpu))->lock);
-	local_irq_restore(flags);
 
 	read_unlock(&related_thread_group_lock);
+
+	local_irq_restore(flags);
 
 	i = 0;
 	for_each_cpu(cpu, query_cpus) {
@@ -3964,7 +3967,14 @@ static void remove_task_from_group(struct task_struct *p)
 
 	if (empty_group) {
 		list_del(&grp->list);
+	   /*
+	   * RCU, kswapd etc tasks can get woken up from
+	   * call_rcu(). As the wakeup path also acquires
+	   * the related_thread_group_lock, drop it here.
+	   */
+		write_unlock(&related_thread_group_lock);
 		call_rcu(&grp->rcu, free_related_thread_group);
+		write_lock(&related_thread_group_lock);
 	}
 }
 
@@ -4306,7 +4316,7 @@ static inline int update_preferred_cluster(struct related_thread_group *grp,
 {
 	u32 new_load = task_load(p);
 
-	if (!grp)
+	if (!grp || !p->grp)
 		return 0;
 
 	/*
@@ -5636,6 +5646,8 @@ prepare_task_switch(struct rq *rq, struct task_struct *prev,
 #ifdef CONFIG_MSM_APP_SETTINGS
 	if (use_app_setting)
 		switch_app_setting_bit(prev, next);
+	if (use_32bit_app_setting)
+		switch_32bit_app_setting_bit(prev, next);
 #endif
 }
 

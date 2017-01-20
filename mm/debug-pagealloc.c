@@ -53,7 +53,14 @@ static bool single_bit_flip(unsigned char a, unsigned char b)
 
 	return error && !(error & (error - 1));
 }
-
+struct page_poison_information {
+	u64 virtualaddress;
+	u64 physicaladdress;
+	char buf;
+};
+#define MAX_PAGE_POISON_COUNT 8
+static struct page_poison_information page_poison_array[MAX_PAGE_POISON_COUNT]={{0,0}};
+static int  page_poison_count = 0;
 static void check_poison_mem(struct page *page,
 			     unsigned char *mem, size_t bytes)
 {
@@ -73,15 +80,29 @@ static void check_poison_mem(struct page *page,
 	if (!__ratelimit(&ratelimit))
 		return;
 	else if (start == end && single_bit_flip(*start, PAGE_POISON))
+    {
 		pr_err("pagealloc: single bit error on page with phys start 0x%lx\n",
 			(unsigned long)page_to_phys(page));
-	else
+        printk(KERN_ERR "virt: %p, phys: 0x%llx\n", start, virt_to_phys(start));
+		if(page_poison_count == MAX_PAGE_POISON_COUNT-1){
+			BUG_ON(PANIC_CORRUPTION);
+			dump_stack();
+		}else {
+			page_poison_array[page_poison_count].virtualaddress = (u64)start;
+			page_poison_array[page_poison_count].physicaladdress = (u64)(virt_to_phys(start));
+			page_poison_array[page_poison_count].buf = *start;
+			page_poison_count++;
+		}
+    }
+	else{
 		pr_err("pagealloc: memory corruption on page with phys start 0x%lx\n",
 			(unsigned long)page_to_phys(page));
 
-	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 16, 1, start,
+		print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 16, 1, start,
 			end - start + 1, 1);
-	dump_stack();
+		BUG_ON(PANIC_CORRUPTION);
+		dump_stack();
+	}
 }
 
 static void unpoison_page(struct page *page)

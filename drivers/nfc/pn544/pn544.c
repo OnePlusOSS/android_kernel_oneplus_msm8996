@@ -1,994 +1,1108 @@
 /*
- * HCI based Driver for NXP PN544 NFC Chip
+ * Copyright (C) 2010 Trusted Logic S.A.
  *
- * Copyright (C) 2012  Intel Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ *
  */
+ /******************************************************************************
+  *
+  *  The original Work has been changed by NXP Semiconductors.
+  *
+  *  Copyright (C) 2015 NXP Semiconductors
+  *
+  *  Licensed under the Apache License, Version 2.0 (the "License");
+  *  you may not use this file except in compliance with the License.
+  *  You may obtain a copy of the License at
+  *
+  *  http://www.apache.org/licenses/LICENSE-2.0
+  *
+  *  Unless required by applicable law or agreed to in writing, software
+  *  distributed under the License is distributed on an "AS IS" BASIS,
+  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  *  See the License for the specific language governing permissions and
+  *  limitations under the License.
+  *
+  ******************************************************************************/
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
-#include <linux/delay.h>
-#include <linux/slab.h>
+#include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
+#include <linux/init.h>
+#include <linux/list.h>
+#include <linux/i2c.h>
+#include <linux/irq.h>
+#include <linux/jiffies.h>
+#include <linux/uaccess.h>
+#include <linux/delay.h>
+#include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/platform_device.h>
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <linux/miscdevice.h>
+#include <linux/spinlock.h>
+#include <linux/nfc/pn544.h>
+#include <asm/siginfo.h>
+#include <linux/rcupdate.h>
+#include <linux/sched.h>
+#include <linux/signal.h>
+#include <linux/wakelock.h>
 
-#include <linux/nfc.h>
-#include <net/nfc/hci.h>
-#include <net/nfc/llc.h>
 
-#include "pn544.h"
+#include <linux/clk.h>
+#include <linux/regulator/consumer.h>
+#include <linux/project_info.h>
 
-/* Timing restrictions (ms) */
-#define PN544_HCI_RESETVEN_TIME		30
 
-enum pn544_state {
-	PN544_ST_COLD,
-	PN544_ST_FW_READY,
-	PN544_ST_READY,
+
+#define DRAGON_NFC 1
+#define SIG_NFC 44
+#define MAX_BUFFER_SIZE 512
+
+struct pn544_dev    {
+    wait_queue_head_t   read_wq;
+    struct mutex        read_mutex;
+    struct i2c_client   *client;
+    struct miscdevice   pn544_device;
+	struct wake_lock    pn544_wake_lock; /*NFC CLK_REQ*/	
+    unsigned int        ven_gpio;
+    unsigned int        firm_gpio;
+    unsigned int        irq_gpio;
+    unsigned int        ese_pwr_gpio; /* gpio used by SPI to provide power to p61 via NFCC */
+    struct mutex        p61_state_mutex; /* used to make p61_current_state flag secure */
+    p61_access_state_t  p61_current_state; /* stores the current P61 state */
+    bool                nfc_ven_enabled; /* stores the VEN pin state powered by Nfc */
+    bool                spi_ven_enabled; /* stores the VEN pin state powered by Spi */
+    bool                irq_enabled;
+	bool                clk_enabled; /*NFC CLK_REQ*/
+    spinlock_t          irq_enabled_lock;
+	spinlock_t          clk_enabled_lock; /*NFC CLK_REQ*/
+    long                nfc_service_pid; /*used to signal the nfc the nfc service */
+	const char *clk_src_name;
+	unsigned int clk_gpio;
+	struct	clk	*s_clk;
+	struct regulator *p544_regulator;
+	struct regulator *p544_regulator_s4;
+	int irq; /*NFC CLK_REQ*/
+
 };
 
-#define FULL_VERSION_LEN 11
-
-/* Proprietary commands */
-#define PN544_WRITE		0x3f
-#define PN544_TEST_SWP		0x21
-
-/* Proprietary gates, events, commands and registers */
-
-/* NFC_HCI_RF_READER_A_GATE additional registers and commands */
-#define PN544_RF_READER_A_AUTO_ACTIVATION			0x10
-#define PN544_RF_READER_A_CMD_CONTINUE_ACTIVATION		0x12
-#define PN544_MIFARE_CMD					0x21
-
-/* Commands that apply to all RF readers */
-#define PN544_RF_READER_CMD_PRESENCE_CHECK	0x30
-#define PN544_RF_READER_CMD_ACTIVATE_NEXT	0x32
-
-/* NFC_HCI_ID_MGMT_GATE additional registers */
-#define PN544_ID_MGMT_FULL_VERSION_SW		0x10
-
-#define PN544_RF_READER_ISO15693_GATE		0x12
-
-#define PN544_RF_READER_F_GATE			0x14
-#define PN544_FELICA_ID				0x04
-#define PN544_FELICA_RAW			0x20
-
-#define PN544_RF_READER_JEWEL_GATE		0x15
-#define PN544_JEWEL_RAW_CMD			0x23
-
-#define PN544_RF_READER_NFCIP1_INITIATOR_GATE	0x30
-#define PN544_RF_READER_NFCIP1_TARGET_GATE	0x31
-
-#define PN544_SYS_MGMT_GATE			0x90
-#define PN544_SYS_MGMT_INFO_NOTIFICATION	0x02
-
-#define PN544_POLLING_LOOP_MGMT_GATE		0x94
-#define PN544_DEP_MODE				0x01
-#define PN544_DEP_ATR_REQ			0x02
-#define PN544_DEP_ATR_RES			0x03
-#define PN544_DEP_MERGE				0x0D
-#define PN544_PL_RDPHASES			0x06
-#define PN544_PL_EMULATION			0x07
-#define PN544_PL_NFCT_DEACTIVATED		0x09
-
-#define PN544_SWP_MGMT_GATE			0xA0
-#define PN544_SWP_DEFAULT_MODE			0x01
-
-#define PN544_NFC_WI_MGMT_GATE			0xA1
-#define PN544_NFC_ESE_DEFAULT_MODE		0x01
-
-#define PN544_HCI_EVT_SND_DATA			0x01
-#define PN544_HCI_EVT_ACTIVATED			0x02
-#define PN544_HCI_EVT_DEACTIVATED		0x03
-#define PN544_HCI_EVT_RCV_DATA			0x04
-#define PN544_HCI_EVT_CONTINUE_MI		0x05
-#define PN544_HCI_EVT_SWITCH_MODE		0x03
-
-#define PN544_HCI_CMD_ATTREQUEST		0x12
-#define PN544_HCI_CMD_CONTINUE_ACTIVATION	0x13
-
-static struct nfc_hci_gate pn544_gates[] = {
-	{NFC_HCI_ADMIN_GATE, NFC_HCI_INVALID_PIPE},
-	{NFC_HCI_LOOPBACK_GATE, NFC_HCI_INVALID_PIPE},
-	{NFC_HCI_ID_MGMT_GATE, NFC_HCI_INVALID_PIPE},
-	{NFC_HCI_LINK_MGMT_GATE, NFC_HCI_INVALID_PIPE},
-	{NFC_HCI_RF_READER_B_GATE, NFC_HCI_INVALID_PIPE},
-	{NFC_HCI_RF_READER_A_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_SYS_MGMT_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_SWP_MGMT_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_POLLING_LOOP_MGMT_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_NFC_WI_MGMT_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_RF_READER_F_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_RF_READER_JEWEL_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_RF_READER_ISO15693_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_RF_READER_NFCIP1_INITIATOR_GATE, NFC_HCI_INVALID_PIPE},
-	{PN544_RF_READER_NFCIP1_TARGET_GATE, NFC_HCI_INVALID_PIPE}
+/* Different driver debug lever */
+#if 0
+enum Pn544_DEBUG_LEVEL {
+    Pn544_DEBUG_OFF,
+    Pn544_FULL_DEBUG
 };
 
-/* Largest headroom needed for outgoing custom commands */
-#define PN544_CMDS_HEADROOM	2
+static unsigned char debug_level = Pn544_FULL_DEBUG;
+//#define P61_DBG_MSG(msg...)  printk(KERN_INFO "[NXP-P61] :  " msg);
 
-struct pn544_hci_info {
-	struct nfc_phy_ops *phy_ops;
-	void *phy_id;
+#define Pn544_DBG_MSG(msg...)  \
+        switch(debug_level)      \
+        {                        \
+        case Pn544_DEBUG_OFF:      \
+        break;                 \
+        case Pn544_FULL_DEBUG:     \
+        printk(KERN_INFO "[NXP-pn544] :  " msg); \
+        break; \
+        default:                 \
+        printk(KERN_ERR "[NXP-pn544] :  Wrong debug level %d", debug_level); \
+        break; \
+        } \
 
-	struct nfc_hci_dev *hdev;
+#define Pn544_ERR_MSG(msg...) printk(KERN_ERR "[NFC-pn544] : " msg );
+#endif
 
-	enum pn544_state state;
+//#define NFC_DEBUG
 
-	struct mutex info_lock;
+#ifdef NFC_DEBUG
 
-	int async_cb_type;
-	data_exchange_cb_t async_cb;
-	void *async_cb_context;
+#ifdef pr_err
+#undef pr_err
+#endif
 
-	fw_download_t fw_download;
-};
+#ifdef pr_warning
+#undef pr_warning
+#endif
 
-static int pn544_hci_open(struct nfc_hci_dev *hdev)
+#ifdef pr_info
+#undef pr_info
+#endif
+
+#ifdef pr_debug
+#undef pr_debug
+#endif
+
+
+#define pr_debug(msg...) printk(KERN_ERR "[NXP-pn544] :  " msg);
+#define pr_err(msg...) printk(KERN_ERR "[NXP-pn544] :  " msg);
+#define pr_warning(msg...) printk(KERN_ERR "[NXP-pn544] :  " msg);
+#define pr_info(msg...) printk(KERN_ERR "[NXP-pn544] :  " msg);
+
+#endif
+
+static void pn544_disable_irq(struct pn544_dev *pn544_dev)
 {
-	struct pn544_hci_info *info = nfc_hci_get_clientdata(hdev);
-	int r = 0;
+    unsigned long flags;
 
-	mutex_lock(&info->info_lock);
-
-	if (info->state != PN544_ST_COLD) {
-		r = -EBUSY;
-		goto out;
-	}
-
-	r = info->phy_ops->enable(info->phy_id);
-
-	if (r == 0)
-		info->state = PN544_ST_READY;
-
-out:
-	mutex_unlock(&info->info_lock);
-	return r;
+    spin_lock_irqsave(&pn544_dev->irq_enabled_lock, flags);
+    if (pn544_dev->irq_enabled) {
+        disable_irq_nosync(pn544_dev->client->irq);
+        pn544_dev->irq_enabled = false;
+    }
+    spin_unlock_irqrestore(&pn544_dev->irq_enabled_lock, flags);
 }
 
-static void pn544_hci_close(struct nfc_hci_dev *hdev)
+static irqreturn_t pn544_dev_irq_handler(int irq, void *dev_id)
 {
-	struct pn544_hci_info *info = nfc_hci_get_clientdata(hdev);
+    struct pn544_dev *pn544_dev = dev_id;
+    pr_debug("%s ",__func__);
 
-	mutex_lock(&info->info_lock);
 
-	if (info->state == PN544_ST_COLD)
-		goto out;
+    pn544_disable_irq(pn544_dev);
 
-	info->phy_ops->disable(info->phy_id);
+    /* Wake up waiting readers */
+    wake_up(&pn544_dev->read_wq);
 
-	info->state = PN544_ST_COLD;
-
-out:
-	mutex_unlock(&info->info_lock);
+    return IRQ_HANDLED;
 }
 
-static int pn544_hci_ready(struct nfc_hci_dev *hdev)
+/*NFC CLK_EQ*/
+static void pn544_disable_clk(struct pn544_dev *pn544_dev)
 {
-	struct sk_buff *skb;
-	static struct hw_config {
-		u8 adr[2];
-		u8 value;
-	} hw_config[] = {
-		{{0x9f, 0x9a}, 0x00},
+	unsigned long flags;
 
-		{{0x98, 0x10}, 0xbc},
+	spin_lock_irqsave(&pn544_dev->clk_enabled_lock, flags);
+    if (pn544_dev->clk_enabled) {
+        disable_irq_nosync(pn544_dev->irq);
+        pn544_dev->clk_enabled = false;
+    }	
+	printk("###clkreq_disable_irq###");
+	spin_unlock_irqrestore(&pn544_dev->clk_enabled_lock, flags);
+}
 
-		{{0x9e, 0x71}, 0x00},
+static void pn544_enable_clk(struct pn544_dev *pn544_dev)
+{
+	unsigned long flags;
+    
+	spin_lock_irqsave(&pn544_dev->clk_enabled_lock, flags);
+    if (!pn544_dev->clk_enabled) {
+        pn544_dev->clk_enabled = true;
+		enable_irq(pn544_dev->irq);
+    }	
+	printk("###clkreq_enable_irq###");
+	spin_unlock_irqrestore(&pn544_dev->clk_enabled_lock, flags);
+}
 
-		{{0x98, 0x09}, 0x00},
+static irqreturn_t clk_req_handler(int irq, void *dev_id)
+{
+    struct pn544_dev *pn544_dev = dev_id;
+    printk("%s ",__func__);
 
-		{{0x9e, 0xb4}, 0x00},
-
-		{{0x9c, 0x01}, 0x08},
-
-		{{0x9e, 0xaa}, 0x01},
-
-		{{0x9b, 0xd1}, 0x17},
-		{{0x9b, 0xd2}, 0x58},
-		{{0x9b, 0xd3}, 0x10},
-		{{0x9b, 0xd4}, 0x47},
-		{{0x9b, 0xd5}, 0x0c},
-		{{0x9b, 0xd6}, 0x37},
-		{{0x9b, 0xdd}, 0x33},
-
-		{{0x9b, 0x84}, 0x00},
-		{{0x99, 0x81}, 0x79},
-		{{0x99, 0x31}, 0x79},
-
-		{{0x98, 0x00}, 0x3f},
-
-		{{0x9f, 0x09}, 0x02},
-
-		{{0x9f, 0x0a}, 0x05},
-
-		{{0x9e, 0xd1}, 0xa1},
-		{{0x99, 0x23}, 0x01},
-
-		{{0x9e, 0x74}, 0x00},
-		{{0x9e, 0x90}, 0x00},
-		{{0x9f, 0x28}, 0x10},
-
-		{{0x9f, 0x35}, 0x04},
-
-		{{0x9f, 0x36}, 0x11},
-
-		{{0x9c, 0x31}, 0x00},
-
-		{{0x9c, 0x32}, 0x00},
-
-		{{0x9c, 0x19}, 0x0a},
-
-		{{0x9c, 0x1a}, 0x0a},
-
-		{{0x9c, 0x0c}, 0x00},
-
-		{{0x9c, 0x0d}, 0x00},
-
-		{{0x9c, 0x12}, 0x00},
-
-		{{0x9c, 0x13}, 0x00},
-
-		{{0x98, 0xa2}, 0x09},
-
-		{{0x98, 0x93}, 0x00},
-
-		{{0x98, 0x7d}, 0x08},
-		{{0x98, 0x7e}, 0x00},
-		{{0x9f, 0xc8}, 0x00},
-	};
-	struct hw_config *p = hw_config;
-	int count = ARRAY_SIZE(hw_config);
-	struct sk_buff *res_skb;
-	u8 param[4];
-	int r;
-
-	param[0] = 0;
-	while (count--) {
-		param[1] = p->adr[0];
-		param[2] = p->adr[1];
-		param[3] = p->value;
-
-		r = nfc_hci_send_cmd(hdev, PN544_SYS_MGMT_GATE, PN544_WRITE,
-				     param, 4, &res_skb);
-		if (r < 0)
-			return r;
-
-		if (res_skb->len != 1) {
-			kfree_skb(res_skb);
-			return -EPROTO;
-		}
-
-		if (res_skb->data[0] != p->value) {
-			kfree_skb(res_skb);
-			return -EIO;
-		}
-
-		kfree_skb(res_skb);
-
-		p++;
+    if(!gpio_get_value(pn544_dev->clk_gpio)){
+	   pn544_disable_clk(pn544_dev);	
+       wake_unlock(&pn544_dev->pn544_wake_lock);		
 	}
 
-	param[0] = NFC_HCI_UICC_HOST_ID;
-	r = nfc_hci_set_param(hdev, NFC_HCI_ADMIN_GATE,
-			      NFC_HCI_ADMIN_WHITELIST, param, 1);
-	if (r < 0)
-		return r;
+    return IRQ_HANDLED;
+}
+/* End, NFC CLK_REQ*/
 
-	param[0] = 0x3d;
-	r = nfc_hci_set_param(hdev, PN544_SYS_MGMT_GATE,
-			      PN544_SYS_MGMT_INFO_NOTIFICATION, param, 1);
-	if (r < 0)
-		return r;
+static ssize_t pn544_dev_read(struct file *filp, char __user *buf,
+        size_t count, loff_t *offset)
+{
+    struct pn544_dev *pn544_dev = filp->private_data;
+    char tmp[MAX_BUFFER_SIZE];
+    int ret;
 
-	param[0] = 0x0;
-	r = nfc_hci_set_param(hdev, NFC_HCI_RF_READER_A_GATE,
-			      PN544_RF_READER_A_AUTO_ACTIVATION, param, 1);
-	if (r < 0)
-		return r;
+    if (count > MAX_BUFFER_SIZE)
+        count = MAX_BUFFER_SIZE;
 
-	r = nfc_hci_send_event(hdev, NFC_HCI_RF_READER_A_GATE,
-			       NFC_HCI_EVT_END_OPERATION, NULL, 0);
-	if (r < 0)
-		return r;
+    pr_debug("%s : reading   %zu bytes. irqgpio=%d\n", __func__, count,gpio_get_value(pn544_dev->irq_gpio));
 
-	param[0] = 0x1;
-	r = nfc_hci_set_param(hdev, PN544_POLLING_LOOP_MGMT_GATE,
-			      PN544_PL_NFCT_DEACTIVATED, param, 1);
-	if (r < 0)
-		return r;
+    mutex_lock(&pn544_dev->read_mutex);
 
-	param[0] = 0x0;
-	r = nfc_hci_set_param(hdev, PN544_POLLING_LOOP_MGMT_GATE,
-			      PN544_PL_RDPHASES, param, 1);
-	if (r < 0)
-		return r;
+    if (!gpio_get_value(pn544_dev->irq_gpio)) {
+        if (filp->f_flags & O_NONBLOCK) {
+            ret = -EAGAIN;
+            goto fail;
+        }
 
-	r = nfc_hci_get_param(hdev, NFC_HCI_ID_MGMT_GATE,
-			      PN544_ID_MGMT_FULL_VERSION_SW, &skb);
-	if (r < 0)
-		return r;
+        while (1) {
+            ret = 0;
+            pn544_dev->irq_enabled = true;
+            enable_irq(pn544_dev->client->irq);
+            /*If IRQ line is already high, which means IRQ was high
+              just before enabling the interrupt, skip waiting for interrupt,
+              as interrupt would have been disabled by then in the interrupt handler*/
+            if (!gpio_get_value(pn544_dev->irq_gpio)){
+            ret = wait_event_interruptible(
+                    pn544_dev->read_wq,
+                    !pn544_dev->irq_enabled);
+            }
 
-	if (skb->len != FULL_VERSION_LEN) {
-		kfree_skb(skb);
-		return -EINVAL;
+
+            pn544_disable_irq(pn544_dev);
+
+            if (ret)
+                goto fail;
+
+            if (gpio_get_value(pn544_dev->irq_gpio))
+                break;
+
+            pr_warning("%s: spurious interrupt detected\n", __func__);
+        }
+    }
+
+    /* Read data */
+    ret = i2c_master_recv(pn544_dev->client, tmp, count);
+
+    mutex_unlock(&pn544_dev->read_mutex);
+
+    /* pn544 seems to be slow in handling I2C read requests
+     * so add 1ms delay after recv operation */
+    udelay(1000);
+
+    if (ret < 0) {
+        pr_err("%s: i2c_master_recv returned %d\n", __func__, ret);
+        return ret;
+    }
+    if (ret > count) {
+        pr_err("%s: received too many bytes from i2c (%d)\n",
+                __func__, ret);
+        return -EIO;
+    }
+    if (copy_to_user(buf, tmp, ret)) {
+        pr_warning("%s : failed to copy to user space\n", __func__);
+        return -EFAULT;
+    }
+    return ret;
+
+    fail:
+    mutex_unlock(&pn544_dev->read_mutex);
+    return ret;
+}
+
+static ssize_t pn544_dev_write(struct file *filp, const char __user *buf,
+        size_t count, loff_t *offset)
+{
+    struct pn544_dev  *pn544_dev;
+    char tmp[MAX_BUFFER_SIZE];
+    int ret;
+
+    pn544_dev = filp->private_data;
+
+    if (count > MAX_BUFFER_SIZE)
+        count = MAX_BUFFER_SIZE;
+
+    if (copy_from_user(tmp, buf, count)) {
+        pr_err("%s : failed to copy from user space\n", __func__);
+        return -EFAULT;
+    }
+
+    pr_debug("%s : writing %zu bytes.\n", __func__, count);
+    /* Write data */
+    ret = i2c_master_send(pn544_dev->client, tmp, count);
+    if (ret != count) {
+        pr_err("%s : i2c_master_send returned %d\n", __func__, ret);
+        ret = -EIO;
+    }
+
+    /* pn544 seems to be slow in handling I2C write requests
+     * so add 1ms delay after I2C send oparation */
+    udelay(1000);
+
+    return ret;
+}
+
+static void p61_update_access_state(struct pn544_dev *pn544_dev, p61_access_state_t current_state, bool set)
+{
+    pr_info("%s: Enter current_state = %x\n", __func__, pn544_dev->p61_current_state);
+    if (current_state)
+    {
+        if(set){
+            if(pn544_dev->p61_current_state == P61_STATE_IDLE)
+                pn544_dev->p61_current_state = P61_STATE_INVALID;
+            pn544_dev->p61_current_state |= current_state;
+        }
+        else{
+            pn544_dev->p61_current_state ^= current_state;
+            if(!pn544_dev->p61_current_state)
+                pn544_dev->p61_current_state = P61_STATE_IDLE;
+        }
+    }
+    pr_info("%s: Exit current_state = %x\n", __func__, pn544_dev->p61_current_state);
+}
+
+static void p61_get_access_state(struct pn544_dev *pn544_dev, p61_access_state_t *current_state)
+{
+
+    if (current_state == NULL) {
+        //*current_state = P61_STATE_INVALID;
+        pr_err("%s : invalid state of p61_access_state_t current state  \n", __func__);
+    } else {
+        *current_state = pn544_dev->p61_current_state;
+    }
+}
+static void p61_access_lock(struct pn544_dev *pn544_dev)
+{
+    pr_info("%s: Enter\n", __func__);
+    mutex_lock(&pn544_dev->p61_state_mutex);
+    pr_info("%s: Exit\n", __func__);
+}
+static void p61_access_unlock(struct pn544_dev *pn544_dev)
+{
+    pr_info("%s: Enter\n", __func__);
+    mutex_unlock(&pn544_dev->p61_state_mutex);
+    pr_info("%s: Exit\n", __func__);
+}
+
+static void signal_handler(p61_access_state_t state, long nfc_pid)
+{
+    struct siginfo sinfo;
+    pid_t pid;
+    struct task_struct *task;
+    int sigret = 0;
+    pr_info("%s: Enter\n", __func__);
+
+    memset(&sinfo, 0, sizeof(struct siginfo));
+    sinfo.si_signo = SIG_NFC;
+    sinfo.si_code = SI_QUEUE;
+    sinfo.si_int = state;
+    pid = nfc_pid;
+
+    task = pid_task(find_vpid(pid), PIDTYPE_PID);
+    if(task)
+    {
+        pr_info("%s.\n", task->comm);
+        sigret = send_sig_info(SIG_NFC, &sinfo, task);
+        if(sigret < 0){
+            pr_info("send_sig_info failed..... sigret %d.\n", sigret);
+            //msleep(60);
+        }
+    }
+    else{
+        pr_info("finding task from PID failed\r\n");
+    }
+    pr_info("%s: Exit\n", __func__);
+}
+static int pn544_dev_open(struct inode *inode, struct file *filp)
+{
+    struct pn544_dev *pn544_dev = container_of(filp->private_data,
+            struct pn544_dev,
+            pn544_device);
+
+    filp->private_data = pn544_dev;
+
+    pr_debug("%s : %d,%d\n", __func__, imajor(inode), iminor(inode));
+
+    return 0;
+}
+
+long  pn544_dev_ioctl(struct file *filp, unsigned int cmd,
+        unsigned long arg)
+{
+    struct pn544_dev *pn544_dev = filp->private_data;
+    pr_info("%s : cmd = %d, arg = %ld\n", __func__, cmd, arg);
+    p61_access_lock(pn544_dev);
+    switch (cmd) {
+    case PN544_SET_PWR:
+    {
+        p61_access_state_t current_state = P61_STATE_INVALID;
+        p61_get_access_state(pn544_dev, &current_state);
+        if (arg == 2) {
+            if (current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO))
+            {
+                /* NFCC fw/download should not be allowed if p61 is used
+                 * by SPI
+                 */
+                pr_info("%s NFCC should not be allowed to reset/FW download \n", __func__);
+                p61_access_unlock(pn544_dev);
+                return -EBUSY; /* Device or resource busy */
+            }
+            pn544_dev->nfc_ven_enabled = true;
+            if (pn544_dev->spi_ven_enabled == false)
+            {
+                /* power on with firmware download (requires hw reset)
+                 */
+                pr_info("%s power on with firmware\n", __func__);
+                gpio_set_value(pn544_dev->ven_gpio, 1);
+                msleep(10);
+                if (pn544_dev->firm_gpio) {
+                    p61_update_access_state(pn544_dev, P61_STATE_DWNLD, true);
+                    gpio_set_value(pn544_dev->firm_gpio, 1);
+                }
+                msleep(10);
+                gpio_set_value(pn544_dev->ven_gpio, 0);
+                msleep(10);
+                gpio_set_value(pn544_dev->ven_gpio, 1);
+                msleep(10);
+            }
+        } else if (arg == 1) {
+            /* power on */
+            pr_info("%s power on\n", __func__);
+            if (pn544_dev->firm_gpio) {
+                if ((current_state & (P61_STATE_WIRED|P61_STATE_SPI|P61_STATE_SPI_PRIO))== 0){
+                    p61_update_access_state(pn544_dev, P61_STATE_IDLE, true);
+                }
+                gpio_set_value(pn544_dev->firm_gpio, 0);
+            }
+
+            pn544_dev->nfc_ven_enabled = true;
+            if (pn544_dev->spi_ven_enabled == false) {
+                gpio_set_value(pn544_dev->ven_gpio, 1);
+            }
+        } else if (arg == 0) {
+            /* power off */
+            pr_info("%s power off\n", __func__);
+            if (pn544_dev->firm_gpio) {
+                if ((current_state & (P61_STATE_WIRED|P61_STATE_SPI|P61_STATE_SPI_PRIO))== 0){
+                    p61_update_access_state(pn544_dev, P61_STATE_IDLE, true);
+                }
+                gpio_set_value(pn544_dev->firm_gpio, 0);
+            }
+
+            pn544_dev->nfc_ven_enabled = false;
+            /* Don't change Ven state if spi made it high */
+            if (pn544_dev->spi_ven_enabled == false) {
+                gpio_set_value(pn544_dev->ven_gpio, 0);
+            }
+        } else {
+            pr_err("%s bad arg %lu\n", __func__, arg);
+            /* changed the p61 state to idle*/
+            p61_access_unlock(pn544_dev);
+            return -EINVAL;
+        }
+    }
+    break;
+    case P61_SET_SPI_PWR:
+    {
+        p61_access_state_t current_state = P61_STATE_INVALID;
+        p61_get_access_state(pn544_dev, &current_state);
+        if (arg == 1) {
+            pr_info("%s : PN61_SET_SPI_PWR - power on ese\n", __func__);
+            if ((current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO)) == 0)
+            {
+                p61_update_access_state(pn544_dev, P61_STATE_SPI, true);
+                /*To handle triple mode protection signal
+                NFC service when SPI session started*/
+                if (current_state & P61_STATE_WIRED){
+                    if(pn544_dev->nfc_service_pid){
+                        pr_info("nfc service pid %s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                        signal_handler(P61_STATE_SPI, pn544_dev->nfc_service_pid);
+                    }
+                    else{
+                        pr_info(" invalid nfc service pid....signalling failed%s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                    }
+                }
+                pn544_dev->spi_ven_enabled = true;
+                if (pn544_dev->nfc_ven_enabled == false)
+                {
+                    /* provide power to NFCC if, NFC service not provided */
+                    gpio_set_value(pn544_dev->ven_gpio, 1);
+                    msleep(10);
+                }
+                /* pull the gpio to high once NFCC is power on*/
+                gpio_set_value(pn544_dev->ese_pwr_gpio, 1);
+            } else {
+                pr_info("%s : PN61_SET_SPI_PWR -  power on ese failed \n", __func__);
+                p61_access_unlock(pn544_dev);
+                return -EBUSY; /* Device or resource busy */
+            }
+        } else if (arg == 0) {
+            pr_info("%s : PN61_SET_SPI_PWR - power off ese\n", __func__);
+            if(current_state & P61_STATE_SPI_PRIO){
+                p61_update_access_state(pn544_dev, P61_STATE_SPI_PRIO, false);
+                if (current_state & P61_STATE_WIRED)
+                {
+                    if(pn544_dev->nfc_service_pid){
+                        pr_info("nfc service pid %s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                        signal_handler(P61_STATE_SPI_PRIO_END, pn544_dev->nfc_service_pid);
+                }
+                else{
+                    pr_info(" invalid nfc service pid....signalling failed%s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                }
+                }
+                if (!(current_state & P61_STATE_WIRED))
+                    gpio_set_value(pn544_dev->ese_pwr_gpio, 0);
+                pn544_dev->spi_ven_enabled = false;
+                 if (pn544_dev->nfc_ven_enabled == false) {
+                     gpio_set_value(pn544_dev->ven_gpio, 0);
+                     msleep(10);
+                 }
+              }else if(current_state & P61_STATE_SPI){
+                  p61_update_access_state(pn544_dev, P61_STATE_SPI, false);
+                  if (!(current_state & P61_STATE_WIRED))
+                  {
+                      gpio_set_value(pn544_dev->ese_pwr_gpio, 0);
+                  }
+                  /*If JCOP3.2 or 3.3 for handling triple mode
+                  protection signal NFC service */
+                  else
+                  {
+                      if (current_state & P61_STATE_WIRED)
+                      {
+                          if(pn544_dev->nfc_service_pid){
+                              pr_info("nfc service pid %s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                              signal_handler(P61_STATE_SPI_END, pn544_dev->nfc_service_pid);
+                           }
+                           else{
+                               pr_info(" invalid nfc service pid....signalling failed%s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                           }
+                      }
+                  }
+                  pn544_dev->spi_ven_enabled = false;
+                  if (pn544_dev->nfc_ven_enabled == false) {
+                      gpio_set_value(pn544_dev->ven_gpio, 0);
+                      msleep(10);
+                  }
+            } else {
+                pr_err("%s : PN61_SET_SPI_PWR - failed, current_state = %x \n",
+                        __func__, pn544_dev->p61_current_state);
+                p61_access_unlock(pn544_dev);
+                return -EPERM; /* Operation not permitted */
+            }
+        }else if (arg == 2) {
+            pr_info("%s : PN61_SET_SPI_PWR - reset\n", __func__);
+            if (current_state & (P61_STATE_IDLE|P61_STATE_SPI|P61_STATE_SPI_PRIO)) {
+                if (pn544_dev->spi_ven_enabled == false)
+                {
+                    pn544_dev->spi_ven_enabled = true;
+                    if (pn544_dev->nfc_ven_enabled == false) {
+                        /* provide power to NFCC if, NFC service not provided */
+                        gpio_set_value(pn544_dev->ven_gpio, 1);
+                        msleep(10);
+                    }
+                }
+                gpio_set_value(pn544_dev->ese_pwr_gpio, 0);
+                msleep(10);
+                gpio_set_value(pn544_dev->ese_pwr_gpio, 1);
+                msleep(10);
+            } else {
+                pr_info("%s : PN61_SET_SPI_PWR - reset  failed \n", __func__);
+                p61_access_unlock(pn544_dev);
+                return -EBUSY; /* Device or resource busy */
+            }
+        }else if (arg == 3) {
+            pr_info("%s : PN61_SET_SPI_PWR - Prio Session Start power on ese\n", __func__);
+            if ((current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO)) == 0) {
+                p61_update_access_state(pn544_dev, P61_STATE_SPI_PRIO, true);
+                if (current_state & P61_STATE_WIRED){
+                    if(pn544_dev->nfc_service_pid){
+                        pr_info("nfc service pid %s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                        signal_handler(P61_STATE_SPI_PRIO, pn544_dev->nfc_service_pid);
+                    }
+                    else{
+                        pr_info(" invalid nfc service pid....signalling failed%s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                    }
+                }
+                pn544_dev->spi_ven_enabled = true;
+                if (pn544_dev->nfc_ven_enabled == false) {
+                    /* provide power to NFCC if, NFC service not provided */
+                    gpio_set_value(pn544_dev->ven_gpio, 1);
+                    msleep(10);
+                }
+                /* pull the gpio to high once NFCC is power on*/
+                gpio_set_value(pn544_dev->ese_pwr_gpio, 1);
+            }else {
+                pr_info("%s : Prio Session Start power on ese failed \n", __func__);
+                p61_access_unlock(pn544_dev);
+                return -EBUSY; /* Device or resource busy */
+            }
+        }else if (arg == 4) {
+            if (current_state & P61_STATE_SPI_PRIO)
+            {
+                pr_info("%s : PN61_SET_SPI_PWR - Prio Session Ending...\n", __func__);
+                p61_update_access_state(pn544_dev, P61_STATE_SPI_PRIO, false);
+                /*after SPI prio timeout, the state is changing from SPI prio to SPI */
+                p61_update_access_state(pn544_dev, P61_STATE_SPI, true);
+                if (current_state & P61_STATE_WIRED)
+                {
+                    if(pn544_dev->nfc_service_pid){
+                        pr_info("nfc service pid %s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                        signal_handler(P61_STATE_SPI_PRIO_END, pn544_dev->nfc_service_pid);
+                    }
+                    else{
+                        pr_info(" invalid nfc service pid....signalling failed%s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                    }
+               }
+            }
+            else
+            {
+                pr_info("%s : PN61_SET_SPI_PWR -  Prio Session End failed \n", __func__);
+                p61_access_unlock(pn544_dev);
+                return -EBADRQC; /* Device or resource busy */
+            }
+        }else {
+            pr_info("%s bad ese pwr arg %lu\n", __func__, arg);
+            p61_access_unlock(pn544_dev);
+            return -EBADRQC; /* Invalid request code */
+        }
+    }
+    break;
+
+    case P61_GET_PWR_STATUS:
+    {
+        p61_access_state_t current_state = P61_STATE_INVALID;
+        p61_get_access_state(pn544_dev, &current_state);
+        pr_info("%s: P61_GET_PWR_STATUS  = %x",__func__, current_state);
+        put_user(current_state, (int __user *)arg);
+    }
+    break;
+
+    case P61_SET_WIRED_ACCESS:
+    {
+        p61_access_state_t current_state = P61_STATE_INVALID;
+        p61_get_access_state(pn544_dev, &current_state);
+        if (arg == 1)
+        {
+            if (current_state)
+            {
+                pr_info("%s : P61_SET_WIRED_ACCESS - enabling\n", __func__);
+                p61_update_access_state(pn544_dev, P61_STATE_WIRED, true);
+                if (current_state & P61_STATE_SPI_PRIO)
+                {
+                    if(pn544_dev->nfc_service_pid){
+                        pr_info("nfc service pid %s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                        signal_handler(P61_STATE_SPI_PRIO, pn544_dev->nfc_service_pid);
+                    }
+                    else{
+                        pr_info(" invalid nfc service pid....signalling failed%s   ---- %ld", __func__, pn544_dev->nfc_service_pid);
+                    }
+                }
+                if((current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO)) == 0)
+                    gpio_set_value(pn544_dev->ese_pwr_gpio, 1);
+            } else {
+                pr_info("%s : P61_SET_WIRED_ACCESS -  enabling failed \n", __func__);
+                p61_access_unlock(pn544_dev);
+                return -EBUSY; /* Device or resource busy */
+            }
+        } else if (arg == 0) {
+            pr_info("%s : P61_SET_WIRED_ACCESS - disabling \n", __func__);
+            if (current_state & P61_STATE_WIRED){
+                p61_update_access_state(pn544_dev, P61_STATE_WIRED, false);
+                if((current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO)) == 0)
+                    gpio_set_value(pn544_dev->ese_pwr_gpio, 0);
+            } else {
+                pr_err("%s : P61_SET_WIRED_ACCESS - failed, current_state = %x \n",
+                        __func__, pn544_dev->p61_current_state);
+                p61_access_unlock(pn544_dev);
+                return -EPERM; /* Operation not permitted */
+            }
+        }
+        else {
+            pr_info("%s P61_SET_WIRED_ACCESS - bad arg %lu\n", __func__, arg);
+            p61_access_unlock(pn544_dev);
+            return -EBADRQC; /* Invalid request code */
+        }
+    }
+    break;
+    case P544_SET_NFC_SERVICE_PID:
+    {
+        pr_info("%s : The NFC Service PID is %ld\n", __func__, arg);
+        pn544_dev->nfc_service_pid = arg;
+
+    }
+    break;
+    default:
+        pr_err("%s bad ioctl %u\n", __func__, cmd);
+        p61_access_unlock(pn544_dev);
+        return -EINVAL;
+    }
+    p61_access_unlock(pn544_dev);
+    return 0;
+}
+
+static const struct file_operations pn544_dev_fops = {
+        .owner  = THIS_MODULE,
+        .llseek = no_llseek,
+        .read   = pn544_dev_read,
+        .write  = pn544_dev_write,
+        .open   = pn544_dev_open,
+        .unlocked_ioctl  = pn544_dev_ioctl,
+};
+#if DRAGON_NFC
+static int pn544_parse_dt(struct device *dev,
+    struct pn544_i2c_platform_data *data)
+{
+    struct device_node *np = dev->of_node;
+    int errorno = 0;
+    int r =0;
+        data->irq_gpio = of_get_named_gpio(np, "nxp,pn544-irq", 0);
+        if ((!gpio_is_valid(data->irq_gpio)))
+                return -EINVAL;
+
+        data->ven_gpio = of_get_named_gpio(np, "nxp,pn544-ven", 0);
+        if ((!gpio_is_valid(data->ven_gpio)))
+                return -EINVAL;
+
+        data->firm_gpio = of_get_named_gpio(np, "nxp,pn544-fw-dwnld", 0);
+        if ((!gpio_is_valid(data->firm_gpio)))
+                return -EINVAL;
+
+        data->ese_pwr_gpio = of_get_named_gpio(np, "nxp,pn544-ese-pwr", 0);
+        if ((!gpio_is_valid(data->ese_pwr_gpio)))
+                return -EINVAL;
+        data->clk_gpio = of_get_named_gpio(np, "nxp,pn544-clk-gpio", 0);
+        if ((!gpio_is_valid(data->clk_gpio)))
+                return -EINVAL;
+        r = of_property_read_string(np, "qcom,clk-src", &data->clk_src_name);
+
+    pr_info("%s: %d, %d, %d, %d ,%d, %d\n", __func__,
+        data->irq_gpio, data->ven_gpio, data->firm_gpio, data->ese_pwr_gpio, data->clk_gpio, errorno);
+
+    return errorno;
+}
+#endif
+
+static int pn544_probe(struct i2c_client *client,
+        const struct i2c_device_id *id)
+{
+    int ret;
+    struct pn544_i2c_platform_data *platform_data;
+    struct pn544_dev *pn544_dev;
+#if !DRAGON_NFC
+    platform_data = client->dev.platform_data;
+#else
+    struct device_node *node = client->dev.of_node;
+    pr_info("Enter %s !!!\n",__func__);
+
+    if (node) {
+        platform_data = devm_kzalloc(&client->dev,
+            sizeof(struct pn544_i2c_platform_data), GFP_KERNEL);
+        if (!platform_data) {
+            dev_err(&client->dev,
+                "nfc-nci probe: Failed to allocate memory\n");
+            return -ENOMEM;
+        }
+        ret = pn544_parse_dt(&client->dev, platform_data);
+        if (ret)
+        {
+            pr_info("%s pn544_parse_dt failed", __func__);
+        }
+        client->irq = gpio_to_irq(platform_data->irq_gpio);
+        if (client->irq < 0)
+        {
+            pr_info("%s gpio to irq failed", __func__);
+        }
+    } else {
+        platform_data = client->dev.platform_data;
+    }
+#endif
+    if (platform_data == NULL) {
+        pr_err("%s : nfc probe fail\n", __func__);
+        return  -ENODEV;
+    }
+
+    if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+        pr_err("%s : need I2C_FUNC_I2C\n", __func__);
+        return  -ENODEV;
+    }
+//#if !DRAGON_NFC
+#if 1
+    ret = gpio_request(platform_data->irq_gpio, "nfc_int");
+    if (ret)
+        return  -ENODEV;
+    ret = gpio_request(platform_data->ven_gpio, "nfc_ven");
+    if (ret)
+        goto err_ven;
+    ret = gpio_request(platform_data->ese_pwr_gpio, "nfc_ese_pwr");
+    if (ret)
+        goto err_ese_pwr;
+    ret = gpio_request(platform_data->clk_gpio, "nfc_clk_gpio");
+    if(ret)
+        goto err_clk_gpio;
+    if (platform_data->firm_gpio) {
+        ret = gpio_request(platform_data->firm_gpio, "nfc_firm");
+        if (ret)
+            goto err_firm;
+    }
+#endif
+    pn544_dev = kzalloc(sizeof(*pn544_dev), GFP_KERNEL);
+    if (pn544_dev == NULL) {
+        dev_err(&client->dev,
+                "failed to allocate memory for module data\n");
+        ret = -ENOMEM;
+        goto err_exit;
+    }
+    pn544_dev->p544_regulator_s4= regulator_get( &client->dev, "nfc_voltage_s4");
+    if (IS_ERR(pn544_dev->p544_regulator_s4))
+    {
+        ret = PTR_ERR(pn544_dev->p544_regulator_s4);
+        pr_err(" Error to get p544_regulator_s4. (error code) = %d\n", ret);
+       goto err_set_nfc_voltage;
+    }
+    else
+    {
+        pr_info("successfully got regulator_s4\n");
+    }
+
+    ret = regulator_set_voltage(pn544_dev->p544_regulator_s4, 1800000, 1800000);
+    if (ret != 0)
+    {
+        pr_err("Error setting the regulator voltage_s4. (error code)= %d\n", ret);
+        goto err_set_p544_regulator_s4;
+		 }
+    else
+    {
+        ret = regulator_enable(pn544_dev->p544_regulator_s4);
+        pr_info("successfully set regulator voltage_s4\n");
+    }
+
+    pn544_dev->irq_gpio = platform_data->irq_gpio;
+    pn544_dev->ven_gpio  = platform_data->ven_gpio;
+    pn544_dev->firm_gpio  = platform_data->firm_gpio;
+    pn544_dev->ese_pwr_gpio  = platform_data->ese_pwr_gpio;
+    pn544_dev->p61_current_state = P61_STATE_IDLE;
+    pn544_dev->nfc_ven_enabled = false;
+    pn544_dev->spi_ven_enabled = false;
+    pn544_dev->client   = client;
+
+    // get and set clock.
+	pn544_dev->clk_src_name = platform_data->clk_src_name;
+	pn544_dev->clk_gpio = platform_data->clk_gpio;
+
+    if (!strcmp(pn544_dev->clk_src_name, "BBCLK2")) {
+        pr_info("get BBCLK2!!!\n");
+        pn544_dev->s_clk = clk_get(&pn544_dev->client->dev, "ref_clk");
+        if (IS_ERR(pn544_dev->s_clk)) {
+        pr_err("no pclk defined\n");
+		goto err_set_p544_regulator_s4;
+        }
+    }
+    clk_set_rate(pn544_dev->s_clk, 19200000);
+    ret = clk_prepare_enable(pn544_dev->s_clk);
+    pr_info("clk_prepare_enable. ret = %d\n", ret);
+    if (ret) {
+        pr_err("Can't enable s_clk\n");
+		   // return err;
+    }
+
+    ret = gpio_direction_input(pn544_dev->irq_gpio);
+    if (ret < 0) {
+        pr_err("%s :not able to set irq_gpio as input\n", __func__);
+        goto err_gpio_set;
+    }
+    ret = gpio_direction_output(pn544_dev->ven_gpio, 0);
+    if (ret < 0) {
+        pr_err("%s : not able to set ven_gpio as output\n", __func__);
+        goto err_gpio_set;
+    }
+    ret = gpio_direction_output(pn544_dev->ese_pwr_gpio, 0);
+    if (ret < 0) {
+        pr_err("%s : not able to set ese_pwr gpio as output\n", __func__);
+        goto err_gpio_set;
+    }
+    if (platform_data->firm_gpio) {
+        ret = gpio_direction_output(pn544_dev->firm_gpio, 0);
+        if (ret < 0) {
+            pr_err("%s : not able to set firm_gpio as output\n",
+                    __func__);
+        goto err_gpio_set;
+        }
+    }
+    ret = gpio_direction_input(pn544_dev->clk_gpio);
+    if(ret <0){
+        pr_err("%s : not able to set clk_gpio as input\n",
+                    __func__);
+        goto err_gpio_set;
+    }
+    /* init mutex and queues */
+    init_waitqueue_head(&pn544_dev->read_wq);
+    mutex_init(&pn544_dev->read_mutex);
+    mutex_init(&pn544_dev->p61_state_mutex);
+    spin_lock_init(&pn544_dev->irq_enabled_lock);
+	/*NFC CLK_REQ*/
+	spin_lock_init(&pn544_dev->clk_enabled_lock);
+	wake_lock_init(&pn544_dev->pn544_wake_lock,
+			WAKE_LOCK_SUSPEND, "pn544_wake_lock");
+    /* End, NFC CLK_REQ*/
+    pn544_dev->pn544_device.minor = MISC_DYNAMIC_MINOR;
+    pn544_dev->pn544_device.name = "pn544";
+    pn544_dev->pn544_device.fops = &pn544_dev_fops;
+
+    ret = misc_register(&pn544_dev->pn544_device);
+    if (ret) {
+        pr_err("%s : misc_register failed\n", __FILE__);
+        goto err_misc_register;
+    }
+			
+    /* request irq.  the irq is set whenever the chip has data available
+     * for reading.  it is cleared when all data has been read.
+     */
+    pr_info("%s : requesting IRQ %d\n", __func__, client->irq);
+    pn544_dev->irq_enabled = true;
+    ret = request_irq(client->irq, pn544_dev_irq_handler,
+            IRQF_TRIGGER_HIGH, client->name, pn544_dev);
+    if (ret) {
+        dev_err(&client->dev, "request_irq failed\n");
+        goto err_request_irq_failed;
+    }
+    pn544_disable_irq(pn544_dev);    
+    i2c_set_clientdata(client, pn544_dev);
+    /*add for wake up ap side*/
+    enable_irq_wake(pn544_dev->client->irq);
+    push_component_info(NFC, "NQ220", "NXP");
+	
+	/* NFC CLK_REQ */	
+	pr_info("%s pn544_dev->clk_gpio = %d\n", __func__, gpio_get_value(pn544_dev->clk_gpio));
+	pn544_dev->irq = gpio_to_irq(pn544_dev->clk_gpio);
+		if (pn544_dev->irq < 0)
+        {
+            pr_info("%s gpio to irq failed", __func__);
+        } 
+		
+	pr_info("%s : requesting IRQ %d\n", __func__, pn544_dev->irq);
+	pn544_dev->clk_enabled = true;
+	ret = request_irq(pn544_dev->irq, clk_req_handler,
+			  IRQF_TRIGGER_FALLING, "CLK_REQ_DETECT", pn544_dev);
+			  
+	if (ret) {
+		dev_err(&client->dev, "%s: request_irq failed\n", __func__);
+		goto err_request_irq_failed;
 	}
+    pn544_disable_clk(pn544_dev);
+	/* End, NFC CLK_REQ*/
+    return 0;
 
-	print_hex_dump(KERN_DEBUG, "FULL VERSION SOFTWARE INFO: ",
-		       DUMP_PREFIX_NONE, 16, 1,
-		       skb->data, FULL_VERSION_LEN, false);
+    err_request_irq_failed:
+    misc_deregister(&pn544_dev->pn544_device);
+    err_misc_register:
+    mutex_destroy(&pn544_dev->read_mutex);
+    mutex_destroy(&pn544_dev->p61_state_mutex);
+    err_gpio_set:
+    clk_disable(pn544_dev->s_clk);
+    clk_put(pn544_dev->s_clk);
+    err_set_p544_regulator_s4:
+    regulator_put(pn544_dev->p544_regulator_s4);
+    err_set_nfc_voltage:
+    regulator_put(pn544_dev->p544_regulator);
+    kfree(pn544_dev);
+    err_exit:
+    if (pn544_dev->firm_gpio)
+        gpio_free(platform_data->firm_gpio);
+    err_clk_gpio:
+    gpio_free(platform_data->clk_gpio);
+    err_firm:
+    gpio_free(platform_data->ese_pwr_gpio);
+    err_ese_pwr:
+    gpio_free(platform_data->ven_gpio);
+    err_ven:
+    gpio_free(platform_data->irq_gpio);
+    return ret;
+}
 
-	kfree_skb(skb);
+static int pn544_remove(struct i2c_client *client)
+{
+    struct pn544_dev *pn544_dev;
+
+    pn544_dev = i2c_get_clientdata(client);
+    clk_disable(pn544_dev->s_clk);
+    clk_put(pn544_dev->s_clk);
+    regulator_put(pn544_dev->p544_regulator_s4);
+    regulator_put(pn544_dev->p544_regulator);
+    free_irq(client->irq, pn544_dev);
+	free_irq(pn544_dev->irq, pn544_dev); /*NFC CLK_REQ*/
+    misc_deregister(&pn544_dev->pn544_device);
+    mutex_destroy(&pn544_dev->read_mutex);
+    mutex_destroy(&pn544_dev->p61_state_mutex);
+    gpio_free(pn544_dev->irq_gpio);
+    gpio_free(pn544_dev->ven_gpio);
+    gpio_free(pn544_dev->ese_pwr_gpio);
+    pn544_dev->p61_current_state = P61_STATE_INVALID;
+    pn544_dev->nfc_ven_enabled = false;
+    pn544_dev->spi_ven_enabled = false;
+
+    if (pn544_dev->firm_gpio)
+        gpio_free(pn544_dev->firm_gpio);
+    kfree(pn544_dev);
+
+    return 0;
+}
+
+static const struct i2c_device_id pn544_id[] = {
+        { "pn544", 0 },
+        { }
+};
+#if DRAGON_NFC
+static struct of_device_id pn544_i2c_dt_match[] = {
+    {
+        .compatible = "nxp,pn544",
+    },
+    {}
+};
+#endif
+/*NFC CLK_REQ*/
+static int pn544_suspend(struct i2c_client *client, pm_message_t message)
+{   
+	struct pn544_dev *pn544_dev = i2c_get_clientdata(client);
+    
+    printk("%s pn544_dev->clk_gpio = %d\n", __func__, gpio_get_value(pn544_dev->clk_gpio));	
+	if(gpio_get_value(pn544_dev->clk_gpio)){
+		wake_lock(&pn544_dev->pn544_wake_lock);		
+		pn544_enable_clk(pn544_dev);
+	}
+	return 0;
+}
+
+static int pn544_resume(struct i2c_client *client)
+{
+	//struct pn544_dev *pn544_dev = i2c_get_clientdata(client);
+    
+	//pn544_disable_clk(pn544_dev);
+	//wake_unlock(&pn544_dev->pn544_wake_lock);
 
 	return 0;
 }
 
-static int pn544_hci_xmit(struct nfc_hci_dev *hdev, struct sk_buff *skb)
-{
-	struct pn544_hci_info *info = nfc_hci_get_clientdata(hdev);
 
-	return info->phy_ops->write(info->phy_id, skb);
-}
+static struct i2c_driver pn544_driver = {
+        .id_table   = pn544_id,
+        .probe      = pn544_probe,
+        .remove     = pn544_remove, /*NFC CLK_REQ*/
+		.suspend	= pn544_suspend, /*NFC CLK_REQ*/     
+	    .resume		= pn544_resume,
+        .driver     = {
+                .owner = THIS_MODULE,
+                .name  = "pn544",
+#if DRAGON_NFC
+                .of_match_table = pn544_i2c_dt_match,
+#endif
+        },
+};
+/* End, NFC CLK_REQ*/
 
-static int pn544_hci_start_poll(struct nfc_hci_dev *hdev,
-				u32 im_protocols, u32 tm_protocols)
-{
-	u8 phases = 0;
-	int r;
-	u8 duration[2];
-	u8 activated;
-	u8 i_mode = 0x3f; /* Enable all supported modes */
-	u8 t_mode = 0x0f;
-	u8 t_merge = 0x01; /* Enable merge by default */
-
-	pr_info(DRIVER_DESC ": %s protocols 0x%x 0x%x\n",
-		__func__, im_protocols, tm_protocols);
-
-	r = nfc_hci_send_event(hdev, NFC_HCI_RF_READER_A_GATE,
-			       NFC_HCI_EVT_END_OPERATION, NULL, 0);
-	if (r < 0)
-		return r;
-
-	duration[0] = 0x18;
-	duration[1] = 0x6a;
-	r = nfc_hci_set_param(hdev, PN544_POLLING_LOOP_MGMT_GATE,
-			      PN544_PL_EMULATION, duration, 2);
-	if (r < 0)
-		return r;
-
-	activated = 0;
-	r = nfc_hci_set_param(hdev, PN544_POLLING_LOOP_MGMT_GATE,
-			      PN544_PL_NFCT_DEACTIVATED, &activated, 1);
-	if (r < 0)
-		return r;
-
-	if (im_protocols & (NFC_PROTO_ISO14443_MASK | NFC_PROTO_MIFARE_MASK |
-			 NFC_PROTO_JEWEL_MASK))
-		phases |= 1;		/* Type A */
-	if (im_protocols & NFC_PROTO_FELICA_MASK) {
-		phases |= (1 << 2);	/* Type F 212 */
-		phases |= (1 << 3);	/* Type F 424 */
-	}
-
-	phases |= (1 << 5);		/* NFC active */
-
-	r = nfc_hci_set_param(hdev, PN544_POLLING_LOOP_MGMT_GATE,
-			      PN544_PL_RDPHASES, &phases, 1);
-	if (r < 0)
-		return r;
-
-	if ((im_protocols | tm_protocols) & NFC_PROTO_NFC_DEP_MASK) {
-		hdev->gb = nfc_get_local_general_bytes(hdev->ndev,
-							&hdev->gb_len);
-		pr_debug("generate local bytes %p\n", hdev->gb);
-		if (hdev->gb == NULL || hdev->gb_len == 0) {
-			im_protocols &= ~NFC_PROTO_NFC_DEP_MASK;
-			tm_protocols &= ~NFC_PROTO_NFC_DEP_MASK;
-		}
-	}
-
-	if (im_protocols & NFC_PROTO_NFC_DEP_MASK) {
-		r = nfc_hci_send_event(hdev,
-				PN544_RF_READER_NFCIP1_INITIATOR_GATE,
-				NFC_HCI_EVT_END_OPERATION, NULL, 0);
-		if (r < 0)
-			return r;
-
-		r = nfc_hci_set_param(hdev,
-				PN544_RF_READER_NFCIP1_INITIATOR_GATE,
-				PN544_DEP_MODE, &i_mode, 1);
-		if (r < 0)
-			return r;
-
-		r = nfc_hci_set_param(hdev,
-				PN544_RF_READER_NFCIP1_INITIATOR_GATE,
-				PN544_DEP_ATR_REQ, hdev->gb, hdev->gb_len);
-		if (r < 0)
-			return r;
-
-		r = nfc_hci_send_event(hdev,
-				PN544_RF_READER_NFCIP1_INITIATOR_GATE,
-				NFC_HCI_EVT_READER_REQUESTED, NULL, 0);
-		if (r < 0)
-			nfc_hci_send_event(hdev,
-					PN544_RF_READER_NFCIP1_INITIATOR_GATE,
-					NFC_HCI_EVT_END_OPERATION, NULL, 0);
-	}
-
-	if (tm_protocols & NFC_PROTO_NFC_DEP_MASK) {
-		r = nfc_hci_set_param(hdev, PN544_RF_READER_NFCIP1_TARGET_GATE,
-				PN544_DEP_MODE, &t_mode, 1);
-		if (r < 0)
-			return r;
-
-		r = nfc_hci_set_param(hdev, PN544_RF_READER_NFCIP1_TARGET_GATE,
-				PN544_DEP_ATR_RES, hdev->gb, hdev->gb_len);
-		if (r < 0)
-			return r;
-
-		r = nfc_hci_set_param(hdev, PN544_RF_READER_NFCIP1_TARGET_GATE,
-				PN544_DEP_MERGE, &t_merge, 1);
-		if (r < 0)
-			return r;
-	}
-
-	r = nfc_hci_send_event(hdev, NFC_HCI_RF_READER_A_GATE,
-			       NFC_HCI_EVT_READER_REQUESTED, NULL, 0);
-	if (r < 0)
-		nfc_hci_send_event(hdev, NFC_HCI_RF_READER_A_GATE,
-				   NFC_HCI_EVT_END_OPERATION, NULL, 0);
-
-	return r;
-}
-
-static int pn544_hci_dep_link_up(struct nfc_hci_dev *hdev,
-				struct nfc_target *target, u8 comm_mode,
-				u8 *gb, size_t gb_len)
-{
-	struct sk_buff *rgb_skb = NULL;
-	int r;
-
-	r = nfc_hci_get_param(hdev, target->hci_reader_gate,
-				PN544_DEP_ATR_RES, &rgb_skb);
-	if (r < 0)
-		return r;
-
-	if (rgb_skb->len == 0 || rgb_skb->len > NFC_GB_MAXSIZE) {
-		r = -EPROTO;
-		goto exit;
-	}
-	print_hex_dump(KERN_DEBUG, "remote gb: ", DUMP_PREFIX_OFFSET,
-			16, 1, rgb_skb->data, rgb_skb->len, true);
-
-	r = nfc_set_remote_general_bytes(hdev->ndev, rgb_skb->data,
-						rgb_skb->len);
-
-	if (r == 0)
-		r = nfc_dep_link_is_up(hdev->ndev, target->idx, comm_mode,
-					NFC_RF_INITIATOR);
-exit:
-	kfree_skb(rgb_skb);
-	return r;
-}
-
-static int pn544_hci_dep_link_down(struct nfc_hci_dev *hdev)
-{
-
-	return nfc_hci_send_event(hdev, PN544_RF_READER_NFCIP1_INITIATOR_GATE,
-					NFC_HCI_EVT_END_OPERATION, NULL, 0);
-}
-
-static int pn544_hci_target_from_gate(struct nfc_hci_dev *hdev, u8 gate,
-				      struct nfc_target *target)
-{
-	switch (gate) {
-	case PN544_RF_READER_F_GATE:
-		target->supported_protocols = NFC_PROTO_FELICA_MASK;
-		break;
-	case PN544_RF_READER_JEWEL_GATE:
-		target->supported_protocols = NFC_PROTO_JEWEL_MASK;
-		target->sens_res = 0x0c00;
-		break;
-	case PN544_RF_READER_NFCIP1_INITIATOR_GATE:
-		target->supported_protocols = NFC_PROTO_NFC_DEP_MASK;
-		break;
-	default:
-		return -EPROTO;
-	}
-
-	return 0;
-}
-
-static int pn544_hci_complete_target_discovered(struct nfc_hci_dev *hdev,
-						u8 gate,
-						struct nfc_target *target)
-{
-	struct sk_buff *uid_skb;
-	int r = 0;
-
-	if (gate == PN544_RF_READER_NFCIP1_INITIATOR_GATE)
-		return r;
-
-	if (target->supported_protocols & NFC_PROTO_NFC_DEP_MASK) {
-		r = nfc_hci_send_cmd(hdev,
-			PN544_RF_READER_NFCIP1_INITIATOR_GATE,
-			PN544_HCI_CMD_CONTINUE_ACTIVATION, NULL, 0, NULL);
-		if (r < 0)
-			return r;
-
-		target->hci_reader_gate = PN544_RF_READER_NFCIP1_INITIATOR_GATE;
-	} else if (target->supported_protocols & NFC_PROTO_MIFARE_MASK) {
-		if (target->nfcid1_len != 4 && target->nfcid1_len != 7 &&
-		    target->nfcid1_len != 10)
-			return -EPROTO;
-
-		r = nfc_hci_send_cmd(hdev, NFC_HCI_RF_READER_A_GATE,
-				     PN544_RF_READER_CMD_ACTIVATE_NEXT,
-				     target->nfcid1, target->nfcid1_len, NULL);
-	} else if (target->supported_protocols & NFC_PROTO_FELICA_MASK) {
-		r = nfc_hci_get_param(hdev, PN544_RF_READER_F_GATE,
-				      PN544_FELICA_ID, &uid_skb);
-		if (r < 0)
-			return r;
-
-		if (uid_skb->len != 8) {
-			kfree_skb(uid_skb);
-			return -EPROTO;
-		}
-
-		/* Type F NFC-DEP IDm has prefix 0x01FE */
-		if ((uid_skb->data[0] == 0x01) && (uid_skb->data[1] == 0xfe)) {
-			kfree_skb(uid_skb);
-			r = nfc_hci_send_cmd(hdev,
-					PN544_RF_READER_NFCIP1_INITIATOR_GATE,
-					PN544_HCI_CMD_CONTINUE_ACTIVATION,
-					NULL, 0, NULL);
-			if (r < 0)
-				return r;
-
-			target->supported_protocols = NFC_PROTO_NFC_DEP_MASK;
-			target->hci_reader_gate =
-				PN544_RF_READER_NFCIP1_INITIATOR_GATE;
-		} else {
-			r = nfc_hci_send_cmd(hdev, PN544_RF_READER_F_GATE,
-					     PN544_RF_READER_CMD_ACTIVATE_NEXT,
-					     uid_skb->data, uid_skb->len, NULL);
-			kfree_skb(uid_skb);
-		}
-	} else if (target->supported_protocols & NFC_PROTO_ISO14443_MASK) {
-		/*
-		 * TODO: maybe other ISO 14443 require some kind of continue
-		 * activation, but for now we've seen only this one below.
-		 */
-		if (target->sens_res == 0x4403)	/* Type 4 Mifare DESFire */
-			r = nfc_hci_send_cmd(hdev, NFC_HCI_RF_READER_A_GATE,
-			      PN544_RF_READER_A_CMD_CONTINUE_ACTIVATION,
-			      NULL, 0, NULL);
-	}
-
-	return r;
-}
-
-#define PN544_CB_TYPE_READER_F 1
-
-static void pn544_hci_data_exchange_cb(void *context, struct sk_buff *skb,
-				       int err)
-{
-	struct pn544_hci_info *info = context;
-
-	switch (info->async_cb_type) {
-	case PN544_CB_TYPE_READER_F:
-		if (err == 0)
-			skb_pull(skb, 1);
-		info->async_cb(info->async_cb_context, skb, err);
-		break;
-	default:
-		if (err == 0)
-			kfree_skb(skb);
-		break;
-	}
-}
-
-#define MIFARE_CMD_AUTH_KEY_A	0x60
-#define MIFARE_CMD_AUTH_KEY_B	0x61
-#define MIFARE_CMD_HEADER	2
-#define MIFARE_UID_LEN		4
-#define MIFARE_KEY_LEN		6
-#define MIFARE_CMD_LEN		12
 /*
- * Returns:
- * <= 0: driver handled the data exchange
- *    1: driver doesn't especially handle, please do standard processing
+ * module load/unload record keeping
  */
-static int pn544_hci_im_transceive(struct nfc_hci_dev *hdev,
-				   struct nfc_target *target,
-				   struct sk_buff *skb, data_exchange_cb_t cb,
-				   void *cb_context)
+
+static int __init pn544_dev_init(void)
 {
-	struct pn544_hci_info *info = nfc_hci_get_clientdata(hdev);
-
-	pr_info(DRIVER_DESC ": %s for gate=%d\n", __func__,
-		target->hci_reader_gate);
-
-	switch (target->hci_reader_gate) {
-	case NFC_HCI_RF_READER_A_GATE:
-		if (target->supported_protocols & NFC_PROTO_MIFARE_MASK) {
-			/*
-			 * It seems that pn544 is inverting key and UID for
-			 * MIFARE authentication commands.
-			 */
-			if (skb->len == MIFARE_CMD_LEN &&
-			    (skb->data[0] == MIFARE_CMD_AUTH_KEY_A ||
-			     skb->data[0] == MIFARE_CMD_AUTH_KEY_B)) {
-				u8 uid[MIFARE_UID_LEN];
-				u8 *data = skb->data + MIFARE_CMD_HEADER;
-
-				memcpy(uid, data + MIFARE_KEY_LEN,
-				       MIFARE_UID_LEN);
-				memmove(data + MIFARE_UID_LEN, data,
-					MIFARE_KEY_LEN);
-				memcpy(data, uid, MIFARE_UID_LEN);
-			}
-
-			return nfc_hci_send_cmd_async(hdev,
-						      target->hci_reader_gate,
-						      PN544_MIFARE_CMD,
-						      skb->data, skb->len,
-						      cb, cb_context);
-		} else
-			return 1;
-	case PN544_RF_READER_F_GATE:
-		*skb_push(skb, 1) = 0;
-		*skb_push(skb, 1) = 0;
-
-		info->async_cb_type = PN544_CB_TYPE_READER_F;
-		info->async_cb = cb;
-		info->async_cb_context = cb_context;
-
-		return nfc_hci_send_cmd_async(hdev, target->hci_reader_gate,
-					      PN544_FELICA_RAW, skb->data,
-					      skb->len,
-					      pn544_hci_data_exchange_cb, info);
-	case PN544_RF_READER_JEWEL_GATE:
-		return nfc_hci_send_cmd_async(hdev, target->hci_reader_gate,
-					      PN544_JEWEL_RAW_CMD, skb->data,
-					      skb->len, cb, cb_context);
-	case PN544_RF_READER_NFCIP1_INITIATOR_GATE:
-		*skb_push(skb, 1) = 0;
-
-		return nfc_hci_send_event(hdev, target->hci_reader_gate,
-					PN544_HCI_EVT_SND_DATA, skb->data,
-					skb->len);
-	default:
-		return 1;
-	}
+    pr_info("Loading pn544 driver\n");
+    return i2c_add_driver(&pn544_driver);
 }
+module_init(pn544_dev_init);
 
-static int pn544_hci_tm_send(struct nfc_hci_dev *hdev, struct sk_buff *skb)
+static void __exit pn544_dev_exit(void)
 {
-	int r;
-
-	/* Set default false for multiple information chaining */
-	*skb_push(skb, 1) = 0;
-
-	r = nfc_hci_send_event(hdev, PN544_RF_READER_NFCIP1_TARGET_GATE,
-			       PN544_HCI_EVT_SND_DATA, skb->data, skb->len);
-
-	kfree_skb(skb);
-
-	return r;
+    pr_info("Unloading pn544 driver\n");
+    i2c_del_driver(&pn544_driver);
 }
+module_exit(pn544_dev_exit);
 
-static int pn544_hci_check_presence(struct nfc_hci_dev *hdev,
-				   struct nfc_target *target)
-{
-	pr_debug("supported protocol %d\b", target->supported_protocols);
-	if (target->supported_protocols & (NFC_PROTO_ISO14443_MASK |
-					NFC_PROTO_ISO14443_B_MASK)) {
-		return nfc_hci_send_cmd(hdev, target->hci_reader_gate,
-					PN544_RF_READER_CMD_PRESENCE_CHECK,
-					NULL, 0, NULL);
-	} else if (target->supported_protocols & NFC_PROTO_MIFARE_MASK) {
-		if (target->nfcid1_len != 4 && target->nfcid1_len != 7 &&
-		    target->nfcid1_len != 10)
-			return -EOPNOTSUPP;
-
-		 return nfc_hci_send_cmd(hdev, NFC_HCI_RF_READER_A_GATE,
-				     PN544_RF_READER_CMD_ACTIVATE_NEXT,
-				     target->nfcid1, target->nfcid1_len, NULL);
-	} else if (target->supported_protocols & (NFC_PROTO_JEWEL_MASK |
-						NFC_PROTO_FELICA_MASK)) {
-		return -EOPNOTSUPP;
-	} else if (target->supported_protocols & NFC_PROTO_NFC_DEP_MASK) {
-		return nfc_hci_send_cmd(hdev, target->hci_reader_gate,
-					PN544_HCI_CMD_ATTREQUEST,
-					NULL, 0, NULL);
-	}
-
-	return 0;
-}
-
-/*
- * Returns:
- * <= 0: driver handled the event, skb consumed
- *    1: driver does not handle the event, please do standard processing
- */
-static int pn544_hci_event_received(struct nfc_hci_dev *hdev, u8 gate, u8 event,
-				    struct sk_buff *skb)
-{
-	struct sk_buff *rgb_skb = NULL;
-	int r;
-
-	pr_debug("hci event %d\n", event);
-	switch (event) {
-	case PN544_HCI_EVT_ACTIVATED:
-		if (gate == PN544_RF_READER_NFCIP1_INITIATOR_GATE) {
-			r = nfc_hci_target_discovered(hdev, gate);
-		} else if (gate == PN544_RF_READER_NFCIP1_TARGET_GATE) {
-			r = nfc_hci_get_param(hdev, gate, PN544_DEP_ATR_REQ,
-					      &rgb_skb);
-			if (r < 0)
-				goto exit;
-
-			r = nfc_tm_activated(hdev->ndev, NFC_PROTO_NFC_DEP_MASK,
-					     NFC_COMM_PASSIVE, rgb_skb->data,
-					     rgb_skb->len);
-
-			kfree_skb(rgb_skb);
-		} else {
-			r = -EINVAL;
-		}
-		break;
-	case PN544_HCI_EVT_DEACTIVATED:
-		r = nfc_hci_send_event(hdev, gate, NFC_HCI_EVT_END_OPERATION,
-				       NULL, 0);
-		break;
-	case PN544_HCI_EVT_RCV_DATA:
-		if (skb->len < 2) {
-			r = -EPROTO;
-			goto exit;
-		}
-
-		if (skb->data[0] != 0) {
-			pr_debug("data0 %d\n", skb->data[0]);
-			r = -EPROTO;
-			goto exit;
-		}
-
-		skb_pull(skb, 2);
-		return nfc_tm_data_received(hdev->ndev, skb);
-	default:
-		return 1;
-	}
-
-exit:
-	kfree_skb(skb);
-
-	return r;
-}
-
-static int pn544_hci_fw_download(struct nfc_hci_dev *hdev,
-				 const char *firmware_name)
-{
-	struct pn544_hci_info *info = nfc_hci_get_clientdata(hdev);
-
-	if (info->fw_download == NULL)
-		return -ENOTSUPP;
-
-	return info->fw_download(info->phy_id, firmware_name, hdev->sw_romlib);
-}
-
-static int pn544_hci_discover_se(struct nfc_hci_dev *hdev)
-{
-	u32 se_idx = 0;
-	u8 ese_mode = 0x01; /* Default mode */
-	struct sk_buff *res_skb;
-	int r;
-
-	r = nfc_hci_send_cmd(hdev, PN544_SYS_MGMT_GATE, PN544_TEST_SWP,
-			     NULL, 0, &res_skb);
-
-	if (r == 0) {
-		if (res_skb->len == 2 && res_skb->data[0] == 0x00)
-			nfc_add_se(hdev->ndev, se_idx++, NFC_SE_UICC);
-
-		kfree_skb(res_skb);
-	}
-
-	r = nfc_hci_send_event(hdev, PN544_NFC_WI_MGMT_GATE,
-				PN544_HCI_EVT_SWITCH_MODE,
-				&ese_mode, 1);
-	if (r == 0)
-		nfc_add_se(hdev->ndev, se_idx++, NFC_SE_EMBEDDED);
-
-	return !se_idx;
-}
-
-#define PN544_SE_MODE_OFF	0x00
-#define PN544_SE_MODE_ON	0x01
-static int pn544_hci_enable_se(struct nfc_hci_dev *hdev, u32 se_idx)
-{
-	struct nfc_se *se;
-	u8 enable = PN544_SE_MODE_ON;
-	static struct uicc_gatelist {
-		u8 head;
-		u8 adr[2];
-		u8 value;
-	} uicc_gatelist[] = {
-		{0x00, {0x9e, 0xd9}, 0x23},
-		{0x00, {0x9e, 0xda}, 0x21},
-		{0x00, {0x9e, 0xdb}, 0x22},
-		{0x00, {0x9e, 0xdc}, 0x24},
-	};
-	struct uicc_gatelist *p = uicc_gatelist;
-	int count = ARRAY_SIZE(uicc_gatelist);
-	struct sk_buff *res_skb;
-	int r;
-
-	se = nfc_find_se(hdev->ndev, se_idx);
-
-	switch (se->type) {
-	case NFC_SE_UICC:
-		while (count--) {
-			r = nfc_hci_send_cmd(hdev, PN544_SYS_MGMT_GATE,
-					PN544_WRITE, (u8 *)p, 4, &res_skb);
-			if (r < 0)
-				return r;
-
-			if (res_skb->len != 1) {
-				kfree_skb(res_skb);
-				return -EPROTO;
-			}
-
-			if (res_skb->data[0] != p->value) {
-				kfree_skb(res_skb);
-				return -EIO;
-			}
-
-			kfree_skb(res_skb);
-
-			p++;
-		}
-
-		return nfc_hci_set_param(hdev, PN544_SWP_MGMT_GATE,
-			      PN544_SWP_DEFAULT_MODE, &enable, 1);
-	case NFC_SE_EMBEDDED:
-		return nfc_hci_set_param(hdev, PN544_NFC_WI_MGMT_GATE,
-			      PN544_NFC_ESE_DEFAULT_MODE, &enable, 1);
-
-	default:
-		return -EINVAL;
-	}
-}
-
-static int pn544_hci_disable_se(struct nfc_hci_dev *hdev, u32 se_idx)
-{
-	struct nfc_se *se;
-	u8 disable = PN544_SE_MODE_OFF;
-
-	se = nfc_find_se(hdev->ndev, se_idx);
-
-	switch (se->type) {
-	case NFC_SE_UICC:
-		return nfc_hci_set_param(hdev, PN544_SWP_MGMT_GATE,
-			      PN544_SWP_DEFAULT_MODE, &disable, 1);
-	case NFC_SE_EMBEDDED:
-		return nfc_hci_set_param(hdev, PN544_NFC_WI_MGMT_GATE,
-			      PN544_NFC_ESE_DEFAULT_MODE, &disable, 1);
-	default:
-		return -EINVAL;
-	}
-}
-
-static struct nfc_hci_ops pn544_hci_ops = {
-	.open = pn544_hci_open,
-	.close = pn544_hci_close,
-	.hci_ready = pn544_hci_ready,
-	.xmit = pn544_hci_xmit,
-	.start_poll = pn544_hci_start_poll,
-	.dep_link_up = pn544_hci_dep_link_up,
-	.dep_link_down = pn544_hci_dep_link_down,
-	.target_from_gate = pn544_hci_target_from_gate,
-	.complete_target_discovered = pn544_hci_complete_target_discovered,
-	.im_transceive = pn544_hci_im_transceive,
-	.tm_send = pn544_hci_tm_send,
-	.check_presence = pn544_hci_check_presence,
-	.event_received = pn544_hci_event_received,
-	.fw_download = pn544_hci_fw_download,
-	.discover_se = pn544_hci_discover_se,
-	.enable_se = pn544_hci_enable_se,
-	.disable_se = pn544_hci_disable_se,
-};
-
-int pn544_hci_probe(void *phy_id, struct nfc_phy_ops *phy_ops, char *llc_name,
-		    int phy_headroom, int phy_tailroom, int phy_payload,
-		    fw_download_t fw_download, struct nfc_hci_dev **hdev)
-{
-	struct pn544_hci_info *info;
-	u32 protocols;
-	struct nfc_hci_init_data init_data;
-	int r;
-
-	info = kzalloc(sizeof(struct pn544_hci_info), GFP_KERNEL);
-	if (!info) {
-		r = -ENOMEM;
-		goto err_info_alloc;
-	}
-
-	info->phy_ops = phy_ops;
-	info->phy_id = phy_id;
-	info->fw_download = fw_download;
-	info->state = PN544_ST_COLD;
-	mutex_init(&info->info_lock);
-
-	init_data.gate_count = ARRAY_SIZE(pn544_gates);
-
-	memcpy(init_data.gates, pn544_gates, sizeof(pn544_gates));
-
-	/*
-	 * TODO: Session id must include the driver name + some bus addr
-	 * persistent info to discriminate 2 identical chips
-	 */
-	strcpy(init_data.session_id, "ID544HCI");
-
-	protocols = NFC_PROTO_JEWEL_MASK |
-		    NFC_PROTO_MIFARE_MASK |
-		    NFC_PROTO_FELICA_MASK |
-		    NFC_PROTO_ISO14443_MASK |
-		    NFC_PROTO_ISO14443_B_MASK |
-		    NFC_PROTO_NFC_DEP_MASK;
-
-	info->hdev = nfc_hci_allocate_device(&pn544_hci_ops, &init_data, 0,
-					     protocols, llc_name,
-					     phy_headroom + PN544_CMDS_HEADROOM,
-					     phy_tailroom, phy_payload);
-	if (!info->hdev) {
-		pr_err("Cannot allocate nfc hdev\n");
-		r = -ENOMEM;
-		goto err_alloc_hdev;
-	}
-
-	nfc_hci_set_clientdata(info->hdev, info);
-
-	r = nfc_hci_register_device(info->hdev);
-	if (r)
-		goto err_regdev;
-
-	*hdev = info->hdev;
-
-	return 0;
-
-err_regdev:
-	nfc_hci_free_device(info->hdev);
-
-err_alloc_hdev:
-	kfree(info);
-
-err_info_alloc:
-	return r;
-}
-EXPORT_SYMBOL(pn544_hci_probe);
-
-void pn544_hci_remove(struct nfc_hci_dev *hdev)
-{
-	struct pn544_hci_info *info = nfc_hci_get_clientdata(hdev);
-
-	nfc_hci_unregister_device(hdev);
-	nfc_hci_free_device(hdev);
-	kfree(info);
-}
-EXPORT_SYMBOL(pn544_hci_remove);
-
+MODULE_AUTHOR("Sylvain Fonteneau");
+MODULE_DESCRIPTION("NFC PN544 driver");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION(DRIVER_DESC);

@@ -2979,6 +2979,8 @@ SYSCALL_DEFINE6(futex, u32 __user *, uaddr, int, op, u32, val,
 		u32, val3)
 {
 	struct timespec ts;
+	struct timespec ctu;
+	struct task_struct *g_leader = current->group_leader;
 	ktime_t t, *tp = NULL;
 	u32 val2 = 0;
 	int cmd = op & FUTEX_CMD_MASK;
@@ -2990,6 +2992,14 @@ SYSCALL_DEFINE6(futex, u32 __user *, uaddr, int, op, u32, val,
 			return -EFAULT;
 		if (!timespec_valid(&ts))
 			return -EINVAL;
+		getnstimeofday(&ctu);
+		ctu = timespec_add(ctu, ts);
+		if (g_leader) {
+			if (timespec_compare(&ctu, &g_leader->ttu) > 0) {
+				g_leader->ttu.tv_sec = ctu.tv_sec;
+				g_leader->ttu.tv_nsec = ctu.tv_nsec;
+			}
+		}
 
 		t = timespec_to_ktime(ts);
 		if (cmd == FUTEX_WAIT)

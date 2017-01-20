@@ -526,6 +526,18 @@ config QPNP_FG
 	  fuel gauge. The state of charge is reported through a BMS power
 	  supply property and also sends uevents when the capacity is updated.
 
+config FG_BQ27541
+        tristate "TI bq27541 fg"
+        depends on I2C
+        help
+          Say Y here to enable the TI Fuel Gauge driver.
+
+config ONEPLUS_FASTCHG
+        tristate "ONEPLUS FAST CHARGE"
+        depends on I2C
+        help
+          Say Y here to enable the ONEPLUS FAST CHARGE driver.
+
 config BATTERY_BCL
 	tristate "Battery Current Limit driver"
 	depends on THERMAL_MONITOR

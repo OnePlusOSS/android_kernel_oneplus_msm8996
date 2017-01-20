@@ -37,6 +37,8 @@
 
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
+#define IMX179 0x179
+#define S5K3P8 0x3108
 
 enum msm_sensor_sensor_slave_info_type {
 	MSM_SENSOR_SLAVEADDR_DATA,
@@ -88,6 +90,7 @@ struct msm_sensor_ctrl_t {
 	enum msm_camera_stream_type_t camera_stream_type;
 	uint32_t set_mclk_23880000;
 	uint8_t is_csid_tg_mode;
+	const char *front_camera_name;
 };
 
 int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp);

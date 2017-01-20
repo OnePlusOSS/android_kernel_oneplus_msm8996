@@ -38,7 +38,7 @@
 #include <linux/slab.h>
 #include <linux/pid_namespace.h>
 #include <linux/security.h>
-
+#include <linux/proc_fs.h>
 #include "binder.h"
 #include "binder_trace.h"
 
@@ -2262,6 +2262,10 @@ retry:
 		switch (w->type) {
 		case BINDER_WORK_TRANSACTION: {
 			t = container_of(w, struct binder_transaction, work);
+            if(t->from) {
+                task_thread_info(current)->pid = t->from->pid;
+                task_thread_info(current)->tgid = t->from->proc->pid;
+            }
 		} break;
 		case BINDER_WORK_TRANSACTION_COMPLETE: {
 			cmd = BR_TRANSACTION_COMPLETE;
@@ -3679,6 +3683,51 @@ BINDER_DEBUG_ENTRY(stats);
 BINDER_DEBUG_ENTRY(transactions);
 BINDER_DEBUG_ENTRY(transaction_log);
 
+static int proc_state_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, binder_state_show, NULL);
+}
+
+static int proc_transactions_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, binder_transactions_show, NULL);
+}
+
+static int proc_transaction_log_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, binder_transaction_log_show, &binder_transaction_log);
+}
+
+
+static const struct file_operations proc_state_operations = {
+  .open       = proc_state_open,
+  .read       = seq_read,
+  .llseek     = seq_lseek,
+  .release    = single_release,
+};
+
+static const struct file_operations proc_transactions_operations = {
+  .open       = proc_transactions_open,
+  .read       = seq_read,
+  .llseek     = seq_lseek,
+  .release    = single_release,
+};
+
+static const struct file_operations proc_transaction_log_operations = {
+  .open       = proc_transaction_log_open,
+  .read       = seq_read,
+  .llseek     = seq_lseek,
+  .release    = single_release,
+};
+
+static int binder_proc_init(void)
+{
+    proc_create("proc_state", 0, NULL, &proc_state_operations);
+    proc_create("proc_transactions", 0, NULL, &proc_transactions_operations);
+    proc_create("proc_transaction_log", 0, NULL, &proc_transaction_log_operations);
+    return 0;
+}
+
 static int __init binder_init(void)
 {
 	int ret;
@@ -3719,6 +3768,7 @@ static int __init binder_init(void)
 				    &binder_transaction_log_failed,
 				    &binder_transaction_log_fops);
 	}
+    binder_proc_init();
 	return ret;
 }
 

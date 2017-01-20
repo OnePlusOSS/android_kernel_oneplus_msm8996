@@ -796,9 +796,7 @@ static inline bool live_in_glue_dir(struct kobject *kobj,
 
 static inline struct kobject *get_glue_dir(struct device *dev)
 {
-	if (live_in_glue_dir(&dev->kobj, dev))
-		return dev->kobj.parent;
-	return NULL;
+	return dev->kobj.parent;
 }
 /*
 * make sure cleaning up dir as the last step, we need to make
@@ -1452,6 +1450,8 @@ int device_offline(struct device *dev)
 
 	device_lock(dev);
 	if (device_supports_offline(dev)) {
+		if (dev->bus->offline_clash && dev->bus->offline_clash(dev))
+			dev->offline = false;
 		if (dev->offline) {
 			ret = 1;
 		} else {
@@ -1483,6 +1483,8 @@ int device_online(struct device *dev)
 
 	device_lock(dev);
 	if (device_supports_offline(dev)) {
+		if (dev->bus->offline_clash && dev->bus->offline_clash(dev))
+			dev->offline = true;
 		if (dev->offline) {
 			ret = dev->bus->online(dev);
 			if (!ret) {

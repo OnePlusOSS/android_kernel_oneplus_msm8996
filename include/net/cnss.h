@@ -101,6 +101,8 @@ enum cnss_driver_status {
 	CNSS_LOAD_UNLOAD
 };
 
+extern void cnss_set_fw_version(u32 version);
+
 enum cnss_runtime_request {
 	CNSS_PM_RUNTIME_GET,
 	CNSS_PM_RUNTIME_PUT,

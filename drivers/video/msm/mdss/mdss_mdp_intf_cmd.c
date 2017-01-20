@@ -569,7 +569,7 @@ int mdss_mdp_resource_control(struct mdss_mdp_ctl *ctl, u32 sw_event)
 	mdss_mdp_get_split_display_ctls(&ctl, &sctl);
 
 	ctx = (struct mdss_mdp_cmd_ctx *) ctl->intf_ctx[MASTER_CTX];
-	if (!ctx) {
+	if (!ctx || !ctx->ctl ) {
 		pr_err("%s invalid ctx\n", __func__);
 		rc = -EINVAL;
 		goto exit;
