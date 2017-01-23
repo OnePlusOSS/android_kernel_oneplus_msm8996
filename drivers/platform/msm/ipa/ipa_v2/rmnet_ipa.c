@@ -35,7 +35,7 @@
 #include <linux/ipa.h>
 #include <uapi/linux/net_map.h>
 
-#include "ipa_trace.h"
+#include <trace/ipa_trace.h>
 
 #define WWAN_METADATA_SHFT 24
 #define WWAN_METADATA_MASK 0xFF000000
