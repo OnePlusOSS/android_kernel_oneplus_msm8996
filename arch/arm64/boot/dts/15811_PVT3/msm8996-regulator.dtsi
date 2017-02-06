@@ -216,7 +216,7 @@
 	rpm-regulator-ldoa13 {
 		status = "okay";
 		pm8994_l13: regulator-l13 {
-			regulator-min-microvolt = <29500000>;
+			regulator-min-microvolt = <2950000>;
 			regulator-max-microvolt = <2950000>;
 			qcom,init-voltage = <2950000>;
 			status = "okay";
