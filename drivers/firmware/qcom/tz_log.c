@@ -908,6 +908,34 @@ static const struct file_operations proc_qsee_log_fops = {
 	.owner = THIS_MODULE,
 };
 
+static ssize_t proc_tz_log_func(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int len =0;
+	memcpy_fromio((void *)tzdbg.diag_buf, tzdbg.virt_iobase,
+						debug_rw_buf_size);
+	memcpy_fromio((void *)tzdbg.hyp_diag_buf, tzdbg.hyp_virt_iobase,
+					tzdbg.hyp_debug_rw_buf_size);
+
+    if (TZBSP_DIAG_MAJOR_VERSION_LEGACY <
+			(tzdbg.diag_buf->version >> 16)) {
+		len = _disp_tz_log_stats(count);
+		*ppos = 0;
+	} else {
+		len = _disp_tz_log_stats_legacy();
+	}
+
+	if (len > count)
+		len = count;
+
+	return simple_read_from_buffer(user_buf, len, ppos,tzdbg.stat[5].data, len);
+}
+
+static const struct file_operations proc_tz_log_fops = {
+	.read =  proc_tz_log_func,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+};
+
 static int tzprocfs_init(struct platform_device *pdev)
 {
 
@@ -925,7 +953,15 @@ static int tzprocfs_init(struct platform_device *pdev)
 	prEntry_tmp = proc_create("qsee_log",0666,prEntry_dir, &proc_qsee_log_fops);
 
     if (prEntry_tmp  == NULL) {
-      dev_err(&pdev->dev, "TZ debugfs_create_file failed\n");
+      dev_err(&pdev->dev, "TZ procfs_create_file qsee_log failed\n");
+      rc = -ENOMEM;
+      goto err;
+    }
+
+    prEntry_tmp = proc_create("tz_log",0666,prEntry_dir, &proc_tz_log_fops);
+
+    if (prEntry_tmp  == NULL) {
+      dev_err(&pdev->dev, "TZ procfs_create_file tz_log failed\n");
       rc = -ENOMEM;
       goto err;
     }

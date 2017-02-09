@@ -633,11 +633,10 @@ out:
 	spin_unlock(&files->file_lock);
     #ifdef FD_OVER_CHECK
 	if(error == -EMFILE) {
-	    static int dump_current_open_files = 0;
-	    // we can just detect a certain process
-	    if(!dump_current_open_files/*&&(strcmp(current->comm, "android.ui")||strcmp(current->comm, "surfaceflinger"))*/)
+	    // every process just dump only one time
+	    if(current->group_leader->dump_fd_leak==false)
 	    {
-	        dump_current_open_files = 0x1;
+	        current->group_leader->dump_fd_leak = true;
 	        printk("[FD_LEAK](PID:%d)fd over RLIMIT_NOFILE:%ld", current->pid, rlimit(RLIMIT_NOFILE));
 	        fd_show_open_files(current->pid, files, fdt);
         }

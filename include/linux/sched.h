@@ -1311,6 +1311,7 @@ struct task_struct {
 	unsigned int ptrace;
 	unsigned int kill_flag;
 	struct timespec ttu;
+    bool dump_fd_leak;
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;
 	int on_cpu;
