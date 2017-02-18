@@ -2053,7 +2053,13 @@ static int fastrpc_cb_legacy_probe(struct device *dev)
 					first_sess->smmu.mapping));
 	if (err)
 		goto bail;
+	VERIFY(err, (sids_size/sizeof(unsigned int)) <= NUM_SESSIONS);
+	if (err)
+		goto bail;
 	for (i = 0; i < sids_size/sizeof(unsigned int); i++) {
+		VERIFY(err, chan->sesscount < NUM_SESSIONS);
+		if (err)
+			goto bail;
 		sess = &chan->session[chan->sesscount];
 		sess->smmu.cb = sids[i];
 		sess->dev = first_sess->dev;

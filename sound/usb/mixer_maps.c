@@ -336,6 +336,30 @@ static const struct usbmix_name_map scms_usb3318_map[] = {
 	{ 0 }
 };
 
+/* Bose companion 5, the dB conversion factor is 16 instead of 256 */
+static struct usbmix_dB_map bose_companion5_dB = {-5006, -6};
+static struct usbmix_name_map bose_companion5_map[] = {
+	{ 3, NULL, .dB = &bose_companion5_dB },
+	{ 0 }	/* terminator */
+};
+
+/* Dragonfly DAC 1.2, the dB conversion factor is 1 instead of 256 */
+static struct usbmix_dB_map dragonfly_1_2_dB = {0, 5000};
+static struct usbmix_name_map dragonfly_1_2_map[] = {
+	{ 7, NULL, .dB = &dragonfly_1_2_dB },
+	{ 0 }	/* terminator */
+};
+
+/*
+ * Dell usb dock with ALC4020 codec had a firmware problem where it got
+ * screwed up when zero volume is passed; just skip it as a workaround
+ */
+static const struct usbmix_name_map dell_alc4020_map[] = {
+	{ 16, NULL },
+	{ 19, NULL },
+	{ 0 }
+};
+
 /*
  * Control map entries
  */
@@ -419,6 +443,10 @@ static struct usbmix_ctl_map usbmix_ctl_maps[] = {
 		.map = aureon_51_2_map,
 	},
 	{
+		.id = USB_ID(0x0bda, 0x4014),
+		.map = dell_alc4020_map,
+	},
+	{
 		.id = USB_ID(0x13e5, 0x0001),
 		.map = scratch_live_map,
 		.ignore_ctl_error = 1,
@@ -441,6 +469,16 @@ static struct usbmix_ctl_map usbmix_ctl_maps[] = {
 		/* Arcam rPAC */
 		.id = USB_ID(0x25c4, 0x0003),
 		.map = scms_usb3318_map,
+	},
+	{
+		/* Bose Companion 5 */
+		.id = USB_ID(0x05a7, 0x1020),
+		.map = bose_companion5_map,
+	},
+	{
+		/* Dragonfly DAC 1.2 */
+		.id = USB_ID(0x21b4, 0x0081),
+		.map = dragonfly_1_2_map,
 	},
 	{ 0 } /* terminator */
 };

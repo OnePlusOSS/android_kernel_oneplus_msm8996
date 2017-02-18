@@ -520,6 +520,7 @@ void rbd_warn(struct rbd_device *rbd_dev, const char *fmt, ...)
 #  define rbd_assert(expr)	((void) 0)
 #endif /* !RBD_DEBUG */
 
+static void rbd_osd_copyup_callback(struct rbd_obj_request *obj_request);
 static int rbd_img_obj_request_submit(struct rbd_obj_request *obj_request);
 static void rbd_img_parent_read(struct rbd_obj_request *obj_request);
 static void rbd_dev_remove_parent(struct rbd_device *rbd_dev);
@@ -1795,6 +1796,16 @@ static void rbd_osd_stat_callback(struct rbd_obj_request *obj_request)
 	obj_request_done_set(obj_request);
 }
 
+static void rbd_osd_call_callback(struct rbd_obj_request *obj_request)
+{
+	dout("%s: obj %p\n", __func__, obj_request);
+
+	if (obj_request_img_data_test(obj_request))
+		rbd_osd_copyup_callback(obj_request);
+	else
+		obj_request_done_set(obj_request);
+}
+
 static void rbd_osd_req_callback(struct ceph_osd_request *osd_req,
 				struct ceph_msg *msg)
 {
@@ -1842,6 +1853,8 @@ static void rbd_osd_req_callback(struct ceph_osd_request *osd_req,
 		rbd_osd_discard_callback(obj_request);
 		break;
 	case CEPH_OSD_OP_CALL:
+		rbd_osd_call_callback(obj_request);
+		break;
 	case CEPH_OSD_OP_NOTIFY_ACK:
 	case CEPH_OSD_OP_WATCH:
 		rbd_osd_trivial_callback(obj_request);
@@ -1916,7 +1929,7 @@ static struct ceph_osd_request *rbd_osd_req_create(
 
 	osdc = &rbd_dev->rbd_client->client->osdc;
 	osd_req = ceph_osdc_alloc_request(osdc, snapc, num_ops, false,
-					  GFP_ATOMIC);
+					  GFP_NOIO);
 	if (!osd_req)
 		return NULL;	/* ENOMEM */
 
@@ -1965,7 +1978,7 @@ rbd_osd_req_create_copyup(struct rbd_obj_request *obj_request)
 	rbd_dev = img_request->rbd_dev;
 	osdc = &rbd_dev->rbd_client->client->osdc;
 	osd_req = ceph_osdc_alloc_request(osdc, snapc, num_osd_ops,
-						false, GFP_ATOMIC);
+						false, GFP_NOIO);
 	if (!osd_req)
 		return NULL;	/* ENOMEM */
 
@@ -2457,7 +2470,7 @@ static int rbd_img_request_fill(struct rbd_img_request *img_request,
 					bio_chain_clone_range(&bio_list,
 								&bio_offset,
 								clone_size,
-								GFP_ATOMIC);
+								GFP_NOIO);
 			if (!obj_request->bio_list)
 				goto out_unwind;
 		} else if (type == OBJ_REQUEST_PAGES) {
@@ -2499,12 +2512,14 @@ out_unwind:
 }
 
 static void
-rbd_img_obj_copyup_callback(struct rbd_obj_request *obj_request)
+rbd_osd_copyup_callback(struct rbd_obj_request *obj_request)
 {
 	struct rbd_img_request *img_request;
 	struct rbd_device *rbd_dev;
 	struct page **pages;
 	u32 page_count;
+
+	dout("%s: obj %p\n", __func__, obj_request);
 
 	rbd_assert(obj_request->type == OBJ_REQUEST_BIO ||
 		obj_request->type == OBJ_REQUEST_NODATA);
@@ -2532,9 +2547,7 @@ rbd_img_obj_copyup_callback(struct rbd_obj_request *obj_request)
 	if (!obj_request->result)
 		obj_request->xferred = obj_request->length;
 
-	/* Finish up with the normal image object callback */
-
-	rbd_img_obj_callback(obj_request);
+	obj_request_done_set(obj_request);
 }
 
 static void
@@ -2619,7 +2632,6 @@ rbd_img_obj_parent_read_full_callback(struct rbd_img_request *img_request)
 
 	/* All set, send it off. */
 
-	orig_request->callback = rbd_img_obj_copyup_callback;
 	osdc = &rbd_dev->rbd_client->client->osdc;
 	img_result = rbd_obj_request_submit(osdc, orig_request);
 	if (!img_result)
@@ -3382,6 +3394,7 @@ static void rbd_handle_request(struct rbd_device *rbd_dev, struct request *rq)
 		goto err_rq;
 	}
 	img_request->rq = rq;
+	snapc = NULL; /* img_request consumes a ref */
 
 	if (op_type == OBJ_OP_DISCARD)
 		result = rbd_img_request_fill(img_request, OBJ_REQUEST_NODATA,
@@ -3768,6 +3781,9 @@ static int rbd_init_disk(struct rbd_device *rbd_dev)
 	q->limits.discard_zeroes_data = 1;
 
 	blk_queue_merge_bvec(q, rbd_merge_bvec);
+	if (!ceph_test_opt(rbd_dev->rbd_client->client, NOCRC))
+		q->backing_dev_info.capabilities |= BDI_CAP_STABLE_WRITES;
+
 	disk->queue = q;
 
 	q->queuedata = rbd_dev;
@@ -5157,42 +5173,36 @@ out_err:
 static int rbd_dev_probe_parent(struct rbd_device *rbd_dev)
 {
 	struct rbd_device *parent = NULL;
-	struct rbd_spec *parent_spec;
-	struct rbd_client *rbdc;
 	int ret;
 
 	if (!rbd_dev->parent_spec)
 		return 0;
-	/*
-	 * We need to pass a reference to the client and the parent
-	 * spec when creating the parent rbd_dev.  Images related by
-	 * parent/child relationships always share both.
-	 */
-	parent_spec = rbd_spec_get(rbd_dev->parent_spec);
-	rbdc = __rbd_get_client(rbd_dev->rbd_client);
 
-	ret = -ENOMEM;
-	parent = rbd_dev_create(rbdc, parent_spec);
-	if (!parent)
+	parent = rbd_dev_create(rbd_dev->rbd_client, rbd_dev->parent_spec);
+	if (!parent) {
+		ret = -ENOMEM;
 		goto out_err;
+	}
+
+	/*
+	 * Images related by parent/child relationships always share
+	 * rbd_client and spec/parent_spec, so bump their refcounts.
+	 */
+	__rbd_get_client(rbd_dev->rbd_client);
+	rbd_spec_get(rbd_dev->parent_spec);
 
 	ret = rbd_dev_image_probe(parent, false);
 	if (ret < 0)
 		goto out_err;
+
 	rbd_dev->parent = parent;
 	atomic_set(&rbd_dev->parent_ref, 1);
-
 	return 0;
-out_err:
-	if (parent) {
-		rbd_dev_unparent(rbd_dev);
-		kfree(rbd_dev->header_name);
-		rbd_dev_destroy(parent);
-	} else {
-		rbd_put_client(rbdc);
-		rbd_spec_put(parent_spec);
-	}
 
+out_err:
+	rbd_dev_unparent(rbd_dev);
+	if (parent)
+		rbd_dev_destroy(parent);
 	return ret;
 }
 

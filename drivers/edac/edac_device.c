@@ -439,17 +439,14 @@ void edac_device_workq_setup(struct edac_device_ctl_info *edac_dev,
  */
 void edac_device_workq_teardown(struct edac_device_ctl_info *edac_dev)
 {
-	int status;
-
 	if (!edac_dev->edac_check)
 		return;
 
-	status = cancel_delayed_work(&edac_dev->work);
-	if (status == 0) {
-		/* workq instance might be running, wait for it */
+	edac_dev->op_state = OP_OFFLINE;
+
+	cancel_delayed_work_sync(&edac_dev->work);
 		flush_workqueue(edac_workqueue);
 	}
-}
 
 /*
  * edac_device_reset_delay_period

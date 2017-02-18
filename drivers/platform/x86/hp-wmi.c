@@ -54,8 +54,9 @@ MODULE_ALIAS("wmi:5FB7F034-2C63-45e9-BE91-3D44E2C707E4");
 #define HPWMI_HARDWARE_QUERY 0x4
 #define HPWMI_WIRELESS_QUERY 0x5
 #define HPWMI_BIOS_QUERY 0x9
+#define HPWMI_FEATURE_QUERY 0xb
 #define HPWMI_HOTKEY_QUERY 0xc
-#define HPWMI_FEATURE_QUERY 0xd
+#define HPWMI_FEATURE2_QUERY 0xd
 #define HPWMI_WIRELESS2_QUERY 0x1b
 #define HPWMI_POSTCODEERROR_QUERY 0x2a
 
@@ -295,25 +296,33 @@ static int hp_wmi_tablet_state(void)
 	return (state & 0x4) ? 1 : 0;
 }
 
-static int __init hp_wmi_bios_2009_later(void)
+static int __init hp_wmi_bios_2008_later(void)
 {
 	int state = 0;
 	int ret = hp_wmi_perform_query(HPWMI_FEATURE_QUERY, 0, &state,
 				       sizeof(state), sizeof(state));
-	if (ret)
-		return ret;
+	if (!ret)
+		return 1;
 
-	return (state & 0x10) ? 1 : 0;
+	return (ret == HPWMI_RET_UNKNOWN_CMDTYPE) ? 0 : -ENXIO;
 }
 
-static int hp_wmi_enable_hotkeys(void)
+static int __init hp_wmi_bios_2009_later(void)
 {
-	int ret;
-	int query = 0x6e;
+	int state = 0;
+	int ret = hp_wmi_perform_query(HPWMI_FEATURE2_QUERY, 0, &state,
+				       sizeof(state), sizeof(state));
+	if (!ret)
+		return 1;
 
-	ret = hp_wmi_perform_query(HPWMI_BIOS_QUERY, 1, &query, sizeof(query),
-				   0);
+	return (ret == HPWMI_RET_UNKNOWN_CMDTYPE) ? 0 : -ENXIO;
+}
 
+static int __init hp_wmi_enable_hotkeys(void)
+{
+	int value = 0x6e;
+	int ret = hp_wmi_perform_query(HPWMI_BIOS_QUERY, 1, &value,
+				       sizeof(value), 0);
 	if (ret)
 		return -EINVAL;
 	return 0;
@@ -663,7 +672,7 @@ static int __init hp_wmi_input_setup(void)
 			    hp_wmi_tablet_state());
 	input_sync(hp_wmi_input_dev);
 
-	if (hp_wmi_bios_2009_later() == 4)
+	if (!hp_wmi_bios_2009_later() && hp_wmi_bios_2008_later())
 		hp_wmi_enable_hotkeys();
 
 	status = wmi_install_notify_handler(HPWMI_EVENT_GUID, hp_wmi_notify, NULL);
@@ -711,6 +720,11 @@ static int __init hp_wmi_rfkill_setup(struct platform_device *device)
 
 	err = hp_wmi_perform_query(HPWMI_WIRELESS_QUERY, 0, &wireless,
 				   sizeof(wireless), sizeof(wireless));
+	if (err)
+		return err;
+
+	err = hp_wmi_perform_query(HPWMI_WIRELESS_QUERY, 1, &wireless,
+				   sizeof(wireless), 0);
 	if (err)
 		return err;
 
@@ -901,7 +915,7 @@ static int __init hp_wmi_bios_setup(struct platform_device *device)
 	gps_rfkill = NULL;
 	rfkill2_count = 0;
 
-	if (hp_wmi_bios_2009_later() || hp_wmi_rfkill_setup(device))
+	if (hp_wmi_rfkill_setup(device))
 		hp_wmi_rfkill2_setup(device);
 
 	err = device_create_file(&device->dev, &dev_attr_display);

@@ -1061,8 +1061,9 @@ nfsd4_decode_rename(struct nfsd4_compoundargs *argp, struct nfsd4_rename *rename
 
 	READ_BUF(4);
 	rename->rn_snamelen = be32_to_cpup(p++);
-	READ_BUF(rename->rn_snamelen + 4);
+	READ_BUF(rename->rn_snamelen);
 	SAVEMEM(rename->rn_sname, rename->rn_snamelen);
+	READ_BUF(4);
 	rename->rn_tnamelen = be32_to_cpup(p++);
 	READ_BUF(rename->rn_tnamelen);
 	SAVEMEM(rename->rn_tname, rename->rn_tnamelen);
@@ -1144,13 +1145,14 @@ nfsd4_decode_setclientid(struct nfsd4_compoundargs *argp, struct nfsd4_setclient
 	READ_BUF(8);
 	setclientid->se_callback_prog = be32_to_cpup(p++);
 	setclientid->se_callback_netid_len = be32_to_cpup(p++);
-
-	READ_BUF(setclientid->se_callback_netid_len + 4);
+	READ_BUF(setclientid->se_callback_netid_len);
 	SAVEMEM(setclientid->se_callback_netid_val, setclientid->se_callback_netid_len);
+	READ_BUF(4);
 	setclientid->se_callback_addr_len = be32_to_cpup(p++);
 
-	READ_BUF(setclientid->se_callback_addr_len + 4);
+	READ_BUF(setclientid->se_callback_addr_len);
 	SAVEMEM(setclientid->se_callback_addr_val, setclientid->se_callback_addr_len);
+	READ_BUF(4);
 	setclientid->se_callback_ident = be32_to_cpup(p++);
 
 	DECODE_TAIL;
@@ -1646,8 +1648,9 @@ nfsd4_decode_compound(struct nfsd4_compoundargs *argp)
 
 	READ_BUF(4);
 	argp->taglen = be32_to_cpup(p++);
-	READ_BUF(argp->taglen + 8);
+	READ_BUF(argp->taglen);
 	SAVEMEM(argp->tag, argp->taglen);
+	READ_BUF(8);
 	argp->minorversion = be32_to_cpup(p++);
 	argp->opcnt = be32_to_cpup(p++);
 	max_reply += 4 + (XDR_QUADLEN(argp->taglen) << 2);
@@ -1974,6 +1977,7 @@ nfsd4_encode_aclname(struct xdr_stream *xdr, struct svc_rqst *rqstp,
 #define WORD0_ABSENT_FS_ATTRS (FATTR4_WORD0_FS_LOCATIONS | FATTR4_WORD0_FSID | \
 			      FATTR4_WORD0_RDATTR_ERROR)
 #define WORD1_ABSENT_FS_ATTRS FATTR4_WORD1_MOUNTED_ON_FILEID
+#define WORD2_ABSENT_FS_ATTRS 0
 
 #ifdef CONFIG_NFSD_V4_SECURITY_LABEL
 static inline __be32
@@ -2002,7 +2006,7 @@ nfsd4_encode_security_label(struct xdr_stream *xdr, struct svc_rqst *rqstp,
 { return 0; }
 #endif
 
-static __be32 fattr_handle_absent_fs(u32 *bmval0, u32 *bmval1, u32 *rdattr_err)
+static __be32 fattr_handle_absent_fs(u32 *bmval0, u32 *bmval1, u32 *bmval2, u32 *rdattr_err)
 {
 	/* As per referral draft:  */
 	if (*bmval0 & ~WORD0_ABSENT_FS_ATTRS ||
@@ -2015,6 +2019,7 @@ static __be32 fattr_handle_absent_fs(u32 *bmval0, u32 *bmval1, u32 *rdattr_err)
 	}
 	*bmval0 &= WORD0_ABSENT_FS_ATTRS;
 	*bmval1 &= WORD1_ABSENT_FS_ATTRS;
+	*bmval2 &= WORD2_ABSENT_FS_ATTRS;
 	return 0;
 }
 
@@ -2078,8 +2083,7 @@ nfsd4_encode_fattr(struct xdr_stream *xdr, struct svc_fh *fhp,
 	BUG_ON(bmval2 & ~nfsd_suppattrs2(minorversion));
 
 	if (exp->ex_fslocs.migrated) {
-		BUG_ON(bmval[2]);
-		status = fattr_handle_absent_fs(&bmval0, &bmval1, &rdattr_err);
+		status = fattr_handle_absent_fs(&bmval0, &bmval1, &bmval2, &rdattr_err);
 		if (status)
 			goto out;
 	}
@@ -2122,8 +2126,8 @@ nfsd4_encode_fattr(struct xdr_stream *xdr, struct svc_fh *fhp,
 	}
 
 #ifdef CONFIG_NFSD_V4_SECURITY_LABEL
-	if ((bmval[2] & FATTR4_WORD2_SECURITY_LABEL) ||
-			bmval[0] & FATTR4_WORD0_SUPPORTED_ATTRS) {
+	if ((bmval2 & FATTR4_WORD2_SECURITY_LABEL) ||
+	     bmval0 & FATTR4_WORD0_SUPPORTED_ATTRS) {
 		err = security_inode_getsecctx(dentry->d_inode,
 						&context, &contextlen);
 		contextsupport = (err == 0);
