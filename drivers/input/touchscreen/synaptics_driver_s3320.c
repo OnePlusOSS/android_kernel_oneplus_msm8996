@@ -180,7 +180,7 @@ static int gesture_switch = 0;
 static int baseline_ret = 0;
 static int TP_FW;
 static int tp_dev = 6;
-static unsigned int tp_debug = 1;
+static unsigned int tp_debug = 0;
 static int button_map[3];
 static int tx_rx_num[2];
 static int16_t Rxdata[30][30];
@@ -209,7 +209,6 @@ static int sleep_enable;
 
 static struct synaptics_ts_data *ts_g = NULL;
 static struct workqueue_struct *synaptics_wq = NULL;
-static struct workqueue_struct *synaptics_report = NULL;
 static struct workqueue_struct *get_base_report = NULL;
 static struct proc_dir_entry *prEntry_tp = NULL;
 
@@ -446,7 +445,6 @@ struct synaptics_ts_data {
 	uint32_t pre_finger_state;
 	uint32_t pre_btn_state;
 	struct delayed_work  base_work;
-	struct work_struct  report_work;
 	struct delayed_work speed_up_work;
 	struct input_dev *input_dev;
 	struct hrtimer timer;
@@ -1180,7 +1178,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 				(gesture_buffer[2] == 0x6d) ? Mgestrue :
 				UnkownGestrue;
 	}
-
+/*
 	keyCode = UnkownGestrue;
 	// Get key code based on registered gesture.
 	switch (gesture) {
@@ -1208,7 +1206,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 		default:
 			break;
 	}
-
+*/
 	TPD_ERR("detect %s gesture\n", gesture == DouTap ? "(double tap)" :
 			gesture == UpVee ? "(V)" :
 			gesture == DownVee ? "(^)" :
@@ -1250,7 +1248,6 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 }
 #endif
 /***************end****************/
-static char prlog_count = 0;
 #ifdef REPORT_2D_PRESSURE
 static unsigned char pres_value = 1;
 #endif
@@ -1416,8 +1413,6 @@ void int_touch(void)
 
 	if (finger_num == 0/* && last_status && (check_key <= 1)*/)
 	{
-		if (3 == (++prlog_count % 6))
-			TPD_ERR("all finger up\n");
 		input_report_key(ts->input_dev, BTN_TOOL_FINGER, 0);
 #ifndef TYPE_B_PROTOCOL
 		input_mt_sync(ts->input_dev);
@@ -1440,6 +1435,7 @@ void int_touch(void)
 	mutex_unlock(&ts->mutexreport);
 }
 
+#ifndef TPD_USE_EINT
 static void synaptics_ts_work_func(struct work_struct *work)
 {
 	int ret,status_check;
@@ -1495,7 +1491,6 @@ END:
 	return;
 }
 
-#ifndef TPD_USE_EINT
 static enum hrtimer_restart synaptics_ts_timer_func(struct hrtimer *timer)
 {
 	struct synaptics_ts_data *ts = container_of(timer, struct synaptics_ts_data, timer);
@@ -1509,10 +1504,50 @@ static enum hrtimer_restart synaptics_ts_timer_func(struct hrtimer *timer)
 static irqreturn_t synaptics_irq_thread_fn(int irq, void *dev_id)
 {
 	struct synaptics_ts_data *ts = (struct synaptics_ts_data *)dev_id;
-	mutex_lock(&ts->mutex);
-    touch_disable(ts);
-	queue_work(synaptics_report, &ts->report_work);
-	mutex_unlock(&ts->mutex);
+	int ret,status_check;
+	uint8_t status = 0;
+	uint8_t inte = 0;
+
+	if (atomic_read(&ts->is_stop) == 1)
+	{
+		return IRQ_HANDLED;
+	}
+
+	if( ts->enable_remote) {
+		return IRQ_HANDLED;
+	}
+
+	ret = synaptics_rmi4_i2c_write_byte(ts->client, 0xff, 0x00 );
+	ret = synaptics_rmi4_i2c_read_word(ts->client, F01_RMI_DATA_BASE);
+
+	if( ret < 0 ) {
+		TPDTM_DMESG("Synaptic:ret = %d\n", ret);
+        synaptics_hard_reset(ts);
+		return IRQ_HANDLED;
+	}
+	status = ret & 0xff;
+	inte = (ret & 0x7f00)>>8;
+	//TPD_ERR("%s status[0x%x],inte[0x%x]\n",__func__,status,inte);
+        if(status & 0x80){
+		TPD_DEBUG("enter reset tp status,and ts->in_gesture_mode is:%d\n",ts->in_gesture_mode);
+		status_check = synaptics_init_panel(ts);
+		if (status_check < 0) {
+			TPD_ERR("synaptics_init_panel failed\n");
+		}
+		if ((ts->is_suspended == 1) && (ts->gesture_enable == 1)){
+			synaptics_enable_interrupt_for_gesture(ts, 1);
+		}
+	}
+/*
+	if(0 != status && 1 != status) {//0:no error;1: after hard reset;the two state don't need soft reset
+        TPD_ERR("%s status[0x%x],inte[0x%x]\n",__func__,status,inte);
+		int_state(ts);
+		goto END;
+	}
+*/
+	if ( inte & 0x04 )
+		int_touch();
+
 	return IRQ_HANDLED;
 }
 #endif
@@ -2423,6 +2458,7 @@ static int	synaptics_input_init(struct synaptics_ts_data *ts)
 	set_bit(KEY_GESTURE_LEFT_V, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_RIGHT_V, ts->input_dev->keybit);
 #endif
+	set_bit(BTN_TOOL_FINGER, ts->input_dev->keybit);
 	/* For multi touch */
 	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MINOR, 0,255, 0, 0);
@@ -3952,8 +3988,8 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 	TP_FW = CURRENT_FIRMWARE_ID;
 	sprintf(ts->fw_id,"0x%x",TP_FW);
 
-	memset(ts->fw_name,TP_FW_NAME_MAX_LEN,0);
-	memset(ts->test_limit_name,TP_FW_NAME_MAX_LEN,0);
+	memset(ts->fw_name,0,TP_FW_NAME_MAX_LEN);
+	memset(ts->test_limit_name,0,TP_FW_NAME_MAX_LEN);
 
 	//sprintf(ts->manu_name, "TP_SYNAPTICS");
 	synaptics_rmi4_i2c_read_block(ts->client, F01_RMI_QUERY11,10, ts->manu_name);
@@ -3977,18 +4013,11 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 	}
 	INIT_DELAYED_WORK(&ts->speed_up_work,speedup_synaptics_resume);
 
-	synaptics_report = create_singlethread_workqueue("synaptics_report");
-	if( !synaptics_report ){
-		ret = -ENOMEM;
-		goto exit_createworkqueue_failed;
-	}
-
 	get_base_report = create_singlethread_workqueue("get_base_report");
 	if( !get_base_report ){
 		ret = -ENOMEM;
 		goto exit_createworkqueue_failed;
 	}
-	INIT_WORK(&ts->report_work,synaptics_ts_work_func);
 	INIT_DELAYED_WORK(&ts->base_work,tp_baseline_get_work);
 
 	ret = synaptics_init_panel(ts); /* will also switch back to page 0x04 */
@@ -4110,8 +4139,6 @@ exit_init_failed:
 exit_createworkqueue_failed:
 	destroy_workqueue(synaptics_wq);
 	synaptics_wq = NULL;
-	destroy_workqueue(synaptics_report);
-	synaptics_report = NULL;
 	destroy_workqueue(get_base_report);
 	get_base_report = NULL;
 
@@ -4310,6 +4337,21 @@ static int synaptics_mode_change(int mode)
 		TPD_ERR("%s: set dose mode[0x%x] err!!\n", __func__,tmp_mode);
 	return ret;
 }
+
+static void set_fingerprintd_nice(int nice)
+{
+	struct task_struct *p;
+
+	read_lock(&tasklist_lock);
+	for_each_process(p) {
+		if (!memcmp(p->comm, "fingerprintd", 13)) {
+			set_user_nice(p, nice);
+			break;
+		}
+	}
+	read_unlock(&tasklist_lock);
+}
+
 #if defined(CONFIG_FB)
 static int fb_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
 {
@@ -4338,6 +4380,7 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 				synaptics_ts_resume(&ts->client->dev);
                 //atomic_set(&ts->is_stop,0);
                 TPD_DEBUG("%s going TP resume end\n", __func__);
+				set_fingerprintd_nice(0);
             }
 		}else if( *blank == FB_BLANK_POWERDOWN && (event == FB_EARLY_EVENT_BLANK ))
 		{
@@ -4351,6 +4394,8 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 				}
                 synaptics_ts_suspend(&ts->client->dev);
 				TPD_DEBUG("%s : going TP suspend end\n", __func__);
+				set_fingerprintd_nice(MIN_NICE);
+				
             }
 		}
 	}

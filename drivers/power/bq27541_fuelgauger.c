@@ -1357,18 +1357,12 @@ static int bq27541_battery_resume(struct i2c_client *client)
 	pr_info("suspend_time=%d\n", suspend_time);
 	update_pre_capacity_data.suspend_time = suspend_time;
 
-	for (ret = 0; ret < NR_CPUS; ret++) {
-		if (cpu_online(ret) && (ret != raw_smp_processor_id()))
-			break;
-	}
-
 	if (di->rtc_resume_time - di->lcd_off_time >= TWO_POINT_FIVE_MINUTES) {
 		pr_err("di->rtc_resume_time - di->lcd_off_time=%ld\n",
 				di->rtc_resume_time - di->lcd_off_time);
 		wake_lock(&di->update_soc_wake_lock);
 		get_current_time(&di->lcd_off_time);
-		queue_delayed_work_on(ret != NR_CPUS ? ret : 0,
-				update_pre_capacity_data.workqueue,
+		queue_delayed_work(update_pre_capacity_data.workqueue,
 				&(update_pre_capacity_data.work), msecs_to_jiffies(1000));
 	}
 	schedule_delayed_work(&bq27541_di->battery_soc_work,
