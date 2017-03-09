@@ -76,6 +76,10 @@ static int cpufreq_stats_update(unsigned int cpu)
 		spin_unlock(&cpufreq_stats_lock);
 		return 0;
 	}
+	if(stat->last_index == -1){
+		spin_unlock(&cpufreq_stats_lock);
+		return 0;
+	}
 	if (stat->time_in_state) {
 		stat->time_in_state[stat->last_index] +=
 			cur_time - stat->last_time;
@@ -138,6 +142,9 @@ void acct_update_power(struct task_struct *task, cputime_t cputime) {
 	stats = per_cpu(cpufreq_stats_table, cpu_num);
 	if (!powerstats || !stats)
 		return;
+
+    if (stats->last_index == -1)
+       return;
 
 	curr = powerstats->curr[stats->last_index];
 	if (task->cpu_power != ULLONG_MAX)
@@ -605,8 +612,11 @@ static int cpufreq_stat_notifier_policy(struct notifier_block *nb,
 	}
 
 	table = cpufreq_frequency_get_table(cpu);
-	if (!table)
+	if (!table) {
+		if (val == CPUFREQ_REMOVE_POLICY)
+			__cpufreq_stats_free_table(policy);
 		return 0;
+	}
 
 	cpufreq_for_each_valid_entry(pos, table)
 		count++;

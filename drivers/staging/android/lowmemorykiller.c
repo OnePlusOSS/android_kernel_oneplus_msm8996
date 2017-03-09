@@ -502,6 +502,8 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 				"   Total reserve is %ldkB\n" \
 				"   Total free pages is %ldkB\n" \
 				"   Total file cache is %ldkB\n" \
+				"   SHMEM is %ldkB\n" \
+				"   SwapCached is %ldkB\n" \
 				"   Total zcache is %ldkB\n" \
 				"   GFP mask is 0x%x\n",
 			     selected->comm, selected->pid,
@@ -517,6 +519,10 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			     global_page_state(NR_FREE_PAGES) *
 				(long)(PAGE_SIZE / 1024),
 			     global_page_state(NR_FILE_PAGES) *
+				(long)(PAGE_SIZE / 1024),
+				global_page_state(NR_SHMEM) *
+				(long)(PAGE_SIZE / 1024),
+				total_swapcache_pages() *
 				(long)(PAGE_SIZE / 1024),
 			     (long)zcache_pages() * (long)(PAGE_SIZE / 1024),
 			     sc->gfp_mask);

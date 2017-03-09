@@ -2048,7 +2048,7 @@ void trace_printk_init_buffers(void)
 		return;
 
 	/* trace_printk() is for debug use only. Don't use it in production. */
-
+	#if 0
 	pr_warning("\n**********************************************************\n");
 	pr_warning("**   NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE   **\n");
 	pr_warning("**                                                      **\n");
@@ -2062,7 +2062,7 @@ void trace_printk_init_buffers(void)
 	pr_warning("**                                                      **\n");
 	pr_warning("**   NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE   **\n");
 	pr_warning("**********************************************************\n");
-
+	#endif
 	/* Expand the buffers to set size */
 	tracing_update_buffers();
 

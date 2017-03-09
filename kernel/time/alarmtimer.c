@@ -135,6 +135,7 @@ void set_power_on_alarm(void)
 	 * It is to make sure that alarm time will be always
 	 * bigger than wall time.
 	*/
+	printk("alarm  set_power_on_alarm time = %ld\n",alarm_secs);
 	if (alarm_secs <= wall_time.tv_sec + 1)
 		goto disable_alarm;
 

@@ -1127,6 +1127,7 @@ void msm_vfe47_cfg_fetch_engine(struct vfe_device *vfe_dev,
 {
 	uint32_t x_size_word, temp;
 	struct msm_vfe_fetch_engine_cfg *fe_cfg = NULL;
+	uint32_t main_unpack_pattern = 0;
 
 	if (pix_cfg->input_mux == EXTERNAL_READ) {
 		fe_cfg = &pix_cfg->fetch_engine_cfg;
@@ -1167,7 +1168,19 @@ void msm_vfe47_cfg_fetch_engine(struct vfe_device *vfe_dev,
 		msm_camera_io_w(temp, vfe_dev->vfe_base + 0x314);
 
 		/* need to use formulae to calculate MAIN_UNPACK_PATTERN*/
-		msm_camera_io_w(0xF6543210, vfe_dev->vfe_base + 0x318);
+		switch (vfe_dev->axi_data.src_info[VFE_PIX_0].input_format) {
+		case V4L2_PIX_FMT_P16BGGR10:
+		case V4L2_PIX_FMT_P16GBRG10:
+		case V4L2_PIX_FMT_P16GRBG10:
+		case V4L2_PIX_FMT_P16RGGB10:
+			main_unpack_pattern = 0xB210;
+			break;
+		default:
+			main_unpack_pattern = 0xF6543210;
+			break;
+		}
+		msm_camera_io_w(main_unpack_pattern,
+			vfe_dev->vfe_base + 0x318);
 		msm_camera_io_w(0xF, vfe_dev->vfe_base + 0x334);
 
 		temp = msm_camera_io_r(vfe_dev->vfe_base + 0x50);

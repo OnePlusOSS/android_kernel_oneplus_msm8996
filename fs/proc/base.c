@@ -2732,7 +2732,9 @@ static int proc_pid_personality(struct seq_file *m, struct pid_namespace *ns,
 	}
 	return err;
 }
+static const struct file_operations proc_wakeup_operations;
 
+static const struct file_operations proc_sleeptime_operations;
 /*
  * Thread groups
  */
@@ -2819,7 +2821,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #endif
 	ONE("oom_score",  S_IRUGO, proc_oom_score),
 	REG("oom_adj",    S_IRUSR, proc_oom_adj_operations),
-	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
+	REG("oom_score_adj", S_IRUGO, proc_oom_score_adj_operations),
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",   S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
@@ -2845,6 +2847,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	REG("timers",	  S_IRUGO, proc_timers_operations),
 #endif
+	REG("sleeptime",  S_IRUGO, proc_sleeptime_operations),
+	REG("wakeup",  S_IRUGO, proc_wakeup_operations),
+
 };
 
 static int proc_tgid_base_readdir(struct file *file, struct dir_context *ctx)
@@ -3008,7 +3013,6 @@ struct dentry *proc_pid_lookup(struct inode *dir, struct dentry * dentry, unsign
 out:
 	return ERR_PTR(result);
 }
-
 /*
  * Find the first task with tgid >= tgid
  *
@@ -3184,6 +3188,7 @@ static const struct pid_entry tid_base_stuff[] = {
 	REG("projid_map", S_IRUGO|S_IWUSR, proc_projid_map_operations),
 	REG("setgroups",  S_IRUGO|S_IWUSR, proc_setgroups_operations),
 #endif
+    REG("wakeup",  S_IRUGO, proc_wakeup_operations),
 };
 
 static int proc_tid_base_readdir(struct file *file, struct dir_context *ctx)
@@ -3413,4 +3418,81 @@ static const struct file_operations proc_task_operations = {
 	.read		= generic_read_dir,
 	.iterate	= proc_task_readdir,
 	.llseek		= default_llseek,
+};
+
+static ssize_t proc_sleeptime_read(struct file * file, char __user * buf,
+                  size_t count, loff_t *ppos)
+{
+    unsigned long flags;
+    struct inode * inode = file->f_path.dentry->d_inode;
+    struct task_struct *task = get_proc_task(inode);
+    struct timespec rmtp;
+    struct timespec ts;
+    int ret = 0;
+    ssize_t length;
+    char tmpbuf[128];
+
+    if (!task)
+        return -ESRCH;
+
+    getnstimeofday(&ts);
+    raw_spin_lock_irqsave(&task->pi_lock, flags);
+    rmtp = task->group_leader->ttu;
+    ret = timespec_compare(&ts, &rmtp);
+    raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+    /**currrent time compare with the task sleeptime
+       if the current time >= sleeptime
+          we consider the task is wake, so clear the sleeptime
+       otherwise sleeptime sub current time to update the
+       remaining time to wake
+    **/
+    if (ret >= 0) {
+        rmtp.tv_sec = 0;
+        rmtp.tv_nsec = 0;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 0;
+    } else {
+        //follow caculate, the rmpt value can't be change
+        ts = timespec_sub(rmtp, ts);
+    }
+
+    length = scnprintf(tmpbuf, 128, "%ld %ld\n",
+                ts.tv_sec, ts.tv_nsec);
+    put_task_struct(task);
+    return simple_read_from_buffer(buf, count, ppos, tmpbuf, length);
+}
+
+static const struct file_operations proc_sleeptime_operations = {
+    .read       = proc_sleeptime_read,
+    .llseek     = generic_file_llseek,
+};
+static ssize_t proc_wakeup_read(struct file * file, char __user * buf,
+                  size_t count, loff_t *ppos)
+{
+    pid_t pid, tgid;
+    unsigned long flags;
+    struct inode * inode = file->f_path.dentry->d_inode;
+    struct task_struct *task = get_proc_task(inode);
+    ssize_t length;
+    char tmpbuf[100];
+
+    if (!task)
+        return -ESRCH;
+
+    raw_spin_lock_irqsave(&task->pi_lock, flags);
+    pid = task_thread_info(task)->pid;
+    tgid = task_thread_info(task)->tgid;
+    raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+
+    //printk("tgid %d pid %d\n", tgid, pid);
+
+    length = scnprintf(tmpbuf, 100, "%u %u\n",
+                tgid, pid);
+    put_task_struct(task);
+    return simple_read_from_buffer(buf, count, ppos, tmpbuf, length);
+}
+
+static const struct file_operations proc_wakeup_operations = {
+    .read       = proc_wakeup_read,
+    .llseek     = generic_file_llseek,
 };

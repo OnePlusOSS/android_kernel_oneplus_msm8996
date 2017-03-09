@@ -32,9 +32,17 @@
 #include <linux/device.h>
 #include <linux/efi.h>
 #include <linux/fb.h>
+#include <linux/sched.h>
+#include <linux/pm_qos.h>
+#include <linux/cpufreq.h>
 
 #include <asm/fb.h>
 
+#define LCDSPEEDUP_LITTLE_CPU_QOS_FREQ 1593600
+#define LCDSPEEDUP_BIG_CPU_QOS_FREQ    2073600
+
+static struct pm_qos_request lcdspeedup_little_cpu_qos;
+static struct pm_qos_request lcdspeedup_big_cpu_qos;
 
     /*
      *  Frame buffer device initialization and setup routines
@@ -1052,6 +1060,23 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 }
 EXPORT_SYMBOL(fb_set_var);
 
+void debug_blank(int blank,int start)
+{
+	if(start)
+	{
+		if(blank == FB_BLANK_UNBLANK)
+			printk("blank on start\n");
+		else if(blank == FB_BLANK_POWERDOWN)
+			printk("blank off start\n");
+	}else{
+		if(blank == FB_BLANK_UNBLANK)
+			printk("blank on end\n");
+		else if(blank == FB_BLANK_POWERDOWN)
+			printk("blank off end\n");
+	}
+}
+
+
 int
 fb_blank(struct fb_info *info, int blank)
 {	
@@ -1063,6 +1088,9 @@ fb_blank(struct fb_info *info, int blank)
 
 	event.info = info;
 	event.data = &blank;
+	
+			debug_blank(blank,1);
+
 
 	early_ret = fb_notifier_call_chain(FB_EARLY_EVENT_BLANK, &event);
 
@@ -1078,6 +1106,12 @@ fb_blank(struct fb_info *info, int blank)
 		 */
 		if (!early_ret)
 			fb_notifier_call_chain(FB_R_EARLY_EVENT_BLANK, &event);
+	}
+	
+			debug_blank(blank,0);
+	if(blank==FB_BLANK_UNBLANK)
+	{
+		sched_set_boost(0);
 	}
 
  	return ret;
@@ -1912,3 +1946,76 @@ int fb_new_modelist(struct fb_info *info)
 }
 
 MODULE_LICENSE("GPL");
+
+static int fb_state_change(struct notifier_block *nb,
+                unsigned long val, void *data)
+{
+        struct fb_event *evdata = data;
+        struct fb_info *info = evdata->info;
+        unsigned int blank;
+
+        if (val != FB_EVENT_BLANK &&
+                val != FB_EARLY_EVENT_BLANK)
+                return 0;
+
+        if (info->node)
+                return NOTIFY_OK;
+
+        blank = *(int *)evdata->data;
+
+        switch (blank) {
+        case FB_BLANK_POWERDOWN:
+                if ((val == FB_EARLY_EVENT_BLANK) || (val == FB_EVENT_BLANK)) {
+                        pm_qos_update_request(&lcdspeedup_little_cpu_qos, 0);
+                        pm_qos_update_request(&lcdspeedup_big_cpu_qos, 0);
+                        pr_debug("::: LCD is off :::\n");
+                }
+                break;
+        case FB_BLANK_UNBLANK:
+                if (val == FB_EARLY_EVENT_BLANK) {
+			struct cpufreq_policy *policy;
+                        /* Speed up LCD on */
+                        pr_debug("::: LCD start on :::\n");
+			/* Fetch little cpu policy and drive the CPU towards target frequency */
+			policy = cpufreq_cpu_get(0);
+			if (policy)  {
+				cpufreq_driver_target(policy, LCDSPEEDUP_LITTLE_CPU_QOS_FREQ, CPUFREQ_RELATION_H);
+				pm_qos_update_request_timeout(&lcdspeedup_little_cpu_qos, LCDSPEEDUP_LITTLE_CPU_QOS_FREQ, 500000);
+			} else
+				return NOTIFY_BAD;
+			cpufreq_cpu_put(policy);
+
+			/* Fetch big cpu policy and drive big cpu towards target frequency */
+			policy = cpufreq_cpu_get(2);
+			if (policy)  {
+				cpufreq_driver_target(policy, LCDSPEEDUP_BIG_CPU_QOS_FREQ, CPUFREQ_RELATION_H);
+				pm_qos_update_request_timeout(&lcdspeedup_big_cpu_qos, LCDSPEEDUP_BIG_CPU_QOS_FREQ, 500000);
+			} else
+				return NOTIFY_BAD;
+			cpufreq_cpu_put(policy);
+		}
+		if (val == FB_EVENT_BLANK) {
+                        pr_debug("::: LCD is on :::\n");
+                }
+                break;
+        default:
+                break;
+        }
+
+        return NOTIFY_OK;
+}
+
+static struct notifier_block fb_block = {
+        .notifier_call = fb_state_change,
+        .priority = 1,
+};
+
+static int __init lcdscreen_speedup_init_pm_qos(void)
+{
+	fb_register_client(&fb_block);
+        pm_qos_add_request(&lcdspeedup_little_cpu_qos, PM_QOS_LITTLE_CPU_FREQ_MIN, 0);
+        pm_qos_add_request(&lcdspeedup_big_cpu_qos, PM_QOS_BIG_CPU_FREQ_MIN, 0);
+
+        return 0;
+}
+late_initcall(lcdscreen_speedup_init_pm_qos);

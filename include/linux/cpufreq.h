@@ -128,6 +128,9 @@ struct cpufreq_policy {
 #ifdef CONFIG_CPU_FREQ
 struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu);
 void cpufreq_cpu_put(struct cpufreq_policy *policy);
+#ifdef CONFIG_CPU_FREQ_LIMIT_BOOT_CURRENT
+extern unsigned int cluster1_first_cpu;
+#endif
 #else
 static inline struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu)
 {

@@ -28,6 +28,8 @@
 #include <linux/msm-sps.h>
 #include "slim-msm.h"
 
+#include <sound/sounddebug.h>
+
 #define NGD_SLIM_NAME	"ngd_msm_ctrl"
 #define SLIM_LA_MGR	0xFF
 #define SLIM_ROOT_FREQ	24576000
@@ -1317,8 +1319,7 @@ capability_retry:
 
 	/* reconnect BAM pipes if needed and enable NGD */
 	ngd_slim_setup(dev);
-
-	timeout = wait_for_completion_timeout(&dev->reconf, HZ);
+    timeout = wait_for_completion_timeout(&dev->reconf, 3 * HZ);
 	if (!timeout) {
 		u32 cfg = readl_relaxed(dev->base +
 					 NGD_BASE(dev->ctrl.nr, dev->ver));

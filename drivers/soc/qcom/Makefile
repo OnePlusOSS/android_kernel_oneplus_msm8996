@@ -101,3 +101,5 @@ obj-$(CONFIG_MSM_KERNEL_PROTECT) += kernel_protect.o
 obj-$(CONFIG_MSM_RTB) += msm_rtb-hotplug.o
 obj-$(CONFIG_MSM_REMOTEQDSS) += remoteqdss.o
 obj-$(CONFIG_QCOM_SMCINVOKE) += smcinvoke.o
+obj-y += project_info.o
+obj-$(CONFIG_RF_CABLE_DETECT) += op_rf_cable_monitor.o

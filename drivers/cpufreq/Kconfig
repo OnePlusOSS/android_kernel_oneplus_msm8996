@@ -135,6 +135,14 @@ config CPU_FREQ_GOV_PERFORMANCE
 
 	  If in doubt, say Y.
 
+config CPU_FREQ_LIMIT_BOOT_CURRENT
+        bool "limit boot current"
+        depends on CPU_FREQ_GOV_PERFORMANCE
+	default y
+        help
+	  When the CPU frequency is high, it will lead to high peak current,
+	  This further can limit boot CPU frequency.
+
 config CPU_FREQ_GOV_POWERSAVE
 	tristate "'powersave' governor"
 	help

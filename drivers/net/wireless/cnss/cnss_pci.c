@@ -54,6 +54,9 @@
 #include <net/cnss_prealloc.h>
 #endif
 
+#include <linux/project_info.h>
+static u32 fw_version;
+
 #define subsys_to_drv(d) container_of(d, struct cnss_data, subsys_desc)
 
 #define VREG_ON			1
@@ -1441,6 +1444,24 @@ int cnss_get_fw_image(struct image_desc_info *image_desc_info)
 }
 EXPORT_SYMBOL(cnss_get_fw_image);
 
+/* Initial and show wlan firmware build version */
+void cnss_set_fw_version(u32 version) {
+	fw_version = version;
+}
+EXPORT_SYMBOL(cnss_set_fw_version);
+
+static ssize_t cnss_version_information_show(struct device *dev,
+                                struct device_attribute *attr, char *buf)
+{
+	if (!penv)
+		return -ENODEV;
+	return scnprintf(buf, PAGE_SIZE, "%u.%u.%u.%u\n", (fw_version & 0xf0000000) >> 28,
+        (fw_version & 0xf000000) >> 24, (fw_version & 0xf00000) >> 20, fw_version & 0x7fff);
+}
+
+static DEVICE_ATTR(cnss_version_information, 0444,
+                cnss_version_information_show, NULL);
+
 static ssize_t wlan_setup_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1691,6 +1712,12 @@ static int cnss_wlan_pci_probe(struct pci_dev *pdev,
 		pr_err("Can't Create Device file\n");
 		goto err_pcie_suspend;
 	}
+	/* Create device file */
+	ret = device_create_file(&penv->pldev->dev, &dev_attr_cnss_version_information);
+	if (ret) {
+		pr_err("Can't Create Device file\n");
+		goto err_pcie_suspend;
+	}
 
 	if (cnss_wlan_is_codeswap_supported(penv->revision_id)) {
 		pr_debug("Code-swap not enabled: %d\n", penv->revision_id);
@@ -1741,6 +1768,7 @@ static void cnss_wlan_pci_remove(struct pci_dev *pdev)
 		return;
 
 	dev = &penv->pldev->dev;
+	device_remove_file(dev, &dev_attr_cnss_version_information);
 	device_remove_file(dev, &dev_attr_wlan_setup);
 
 	if (penv->smmu_mapping)
@@ -3043,6 +3071,10 @@ skip_ramdump:
 		pr_err("cnss: fw_image_setup sys file creation failed\n");
 		goto err_bus_reg;
 	}
+
+        /* product information */
+        push_component_info(WCN, "QCA6164A", "QualComm");
+
 	pr_info("cnss: Platform driver probed successfully.\n");
 	return ret;
 

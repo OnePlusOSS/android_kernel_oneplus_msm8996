@@ -18,6 +18,7 @@
 #include <linux/idr.h>
 #include <linux/pm_runtime.h>
 #include <linux/slimbus/slimbus.h>
+#include <sound/sounddebug.h>
 
 #define SLIM_PORT_HDL(la, f, p) ((la)<<24 | (f) << 16 | (p))
 

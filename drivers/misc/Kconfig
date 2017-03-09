@@ -561,6 +561,36 @@ config USB_EXT_TYPE_C_TI
 	  This adds support for detecting USB Type-C chargers that
 	  can supply upto 3A Vbus current for charging.
 
+config TUSB320_TYPE_C
+	tristate "USB Type-C charger detection support using external chip"
+	depends on I2C && POWER_SUPPLY
+	help
+	  Enables support for the USB Type-C chargers using external
+	  chips connected using I2C.
+
+	  This adds support for detecting USB Type-C chargers that
+	  can supply upto 3A Vbus current for charging.
+
+config FUSB301_TYPE_C
+	tristate "USB Type-C charger detection support using external chip"
+	depends on I2C && POWER_SUPPLY
+	help
+	  Enables support for the USB Type-C chargers using external
+	  chips connected using I2C.
+
+	  This adds support for detecting USB Type-C chargers that
+	  can supply upto 3A Vbus current for charging.
+
+config PTN5150_TYPE_C
+	tristate "USB Type-C charger detection support using external chip"
+	depends on I2C && POWER_SUPPLY
+	help
+	  Enables support for the USB Type-C chargers using external
+	  chips connected using I2C.
+
+	  This adds support for detecting USB Type-C chargers that
+	  can supply upto 3A Vbus current for charging.
+
 config TI_DRV2667
 	tristate "TI's DRV2667 haptic controller support"
 	depends on I2C
@@ -571,7 +601,21 @@ config TI_DRV2667
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called ti_drv2667.
+	  
+config GPIO_SWITCH
+	tristate "use gpio swith"
+	default y
+	help
+	  we can use gpio switch set gpio out high or low
 
+#add by xcb
+config BOOTLOADER_LOG
+	tristate "show bootloader log"
+	depends on OF
+	default y
+	help
+	  show bootloader log in kernel
+	  
 config QPNP_MISC
 	tristate "QPNP Misc Peripheral"
 	depends on SPMI || MSM_SPMI

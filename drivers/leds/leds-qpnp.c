@@ -249,6 +249,7 @@
 #define KPDBL_MODULE_EN_MASK		0x80
 #define NUM_KPDBL_LEDS			4
 #define KPDBL_MASTER_BIT_INDEX		0
+static u8	shutdown_enable = 0;
 
 /**
  * enum qpnp_leds - QPNP supported led ids
@@ -2528,11 +2529,12 @@ static ssize_t duty_pcts_store(struct device *dev,
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	char *buffer;
 	ssize_t ret;
-	int i = 0;
+	int rets;
+	//int i = 0;
 	int max_duty_pcts;
 	struct pwm_config_data *pwm_cfg;
 	u32 previous_num_duty_pcts;
-	int value;
+	//int value;
 	int *previous_duty_pcts;
 
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
@@ -2563,15 +2565,22 @@ static ssize_t duty_pcts_store(struct device *dev,
 
 	buffer = (char *)buf;
 
-	for (i = 0; i < max_duty_pcts; i++) {
-		if (buffer == NULL)
-			break;
-		ret = sscanf((const char *)buffer, "%u,%s", &value, buffer);
-		pwm_cfg->old_duty_pcts[i] = value;
-		num_duty_pcts++;
-		if (ret <= 1)
-			break;
+	rets= sscanf((const char *)buffer,
+		"%x %x %x %x %x %x %x %x %x %x %x ",
+			    &pwm_cfg->old_duty_pcts[0], &pwm_cfg->old_duty_pcts[1],
+			    &pwm_cfg->old_duty_pcts[2], &pwm_cfg->old_duty_pcts[3],
+			    &pwm_cfg->old_duty_pcts[4], &pwm_cfg->old_duty_pcts[5],
+			    &pwm_cfg->old_duty_pcts[6],&pwm_cfg->old_duty_pcts[7],
+			    &pwm_cfg->old_duty_pcts[8], &pwm_cfg->old_duty_pcts[9],
+			    &pwm_cfg->old_duty_pcts[10]);
+	if(rets != 11)
+	{
+		pr_err("duty_pcts_store: Invalid paramter:%d\n", rets);
+			return -1;
 	}
+
+	num_duty_pcts = 11;
+
 
 	if (num_duty_pcts >= max_duty_pcts) {
 		dev_err(&led->spmi_dev->dev,
@@ -2690,6 +2699,42 @@ static ssize_t blink_store(struct device *dev,
 	return count;
 }
 
+static ssize_t shutdown_enable_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	return sprintf(buf, "%d\n", shutdown_enable);
+}
+
+static ssize_t shutdown_enable_store(struct device *dev,
+	struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+
+	if (count < 1)
+		return -EINVAL;
+
+	switch (buf[0]) {
+	case '0':
+		shutdown_enable = 0;
+		break;
+	case '3':
+		shutdown_enable = 3;
+		break;
+	case '4':
+		shutdown_enable = 4;
+		break;
+	case '5':
+		shutdown_enable = 5;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return count;
+
+}
+
 static DEVICE_ATTR(led_mode, 0664, NULL, led_mode_store);
 static DEVICE_ATTR(strobe, 0664, NULL, led_strobe_type_store);
 static DEVICE_ATTR(pwm_us, 0664, NULL, pwm_us_store);
@@ -2700,7 +2745,7 @@ static DEVICE_ATTR(ramp_step_ms, 0664, NULL, ramp_step_ms_store);
 static DEVICE_ATTR(lut_flags, 0664, NULL, lut_flags_store);
 static DEVICE_ATTR(duty_pcts, 0664, NULL, duty_pcts_store);
 static DEVICE_ATTR(blink, 0664, NULL, blink_store);
-
+static DEVICE_ATTR(enable, 0644, shutdown_enable_show, shutdown_enable_store);
 static struct attribute *led_attrs[] = {
 	&dev_attr_led_mode.attr,
 	&dev_attr_strobe.attr,
@@ -2713,6 +2758,7 @@ static const struct attribute_group led_attr_group = {
 
 static struct attribute *pwm_attrs[] = {
 	&dev_attr_pwm_us.attr,
+	&dev_attr_enable.attr,
 	NULL
 };
 
@@ -4035,6 +4081,10 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 		}
 
 		if (led->id == QPNP_ID_LED_MPP) {
+            if (!led->default_on &&  strcmp(led->cdev.name, "button-backlight") == 0)
+            {
+                __qpnp_led_work(led, led->cdev.brightness);
+            }
 			if (!led->mpp_cfg->pwm_cfg)
 				break;
 			if (led->mpp_cfg->pwm_cfg->mode == PWM_MODE) {
@@ -4224,6 +4274,37 @@ static int qpnp_leds_remove(struct spmi_device *spmi)
 	return 0;
 }
 
+static void qpnp_leds_shutdown(struct spmi_device *spmi)
+{
+	struct qpnp_led_data *led_array = dev_get_drvdata(&spmi->dev);
+	int i, parsed_leds = led_array->num_leds;
+
+	for (i = 0; i < parsed_leds; i++) {
+		if(led_array[i].id == QPNP_ID_RGB_RED){
+			if(shutdown_enable == QPNP_ID_RGB_RED)
+				led_array[i].cdev.brightness = LED_FULL;
+			else
+				led_array[i].cdev.brightness = LED_OFF;
+		}
+	    else if(led_array[i].id == QPNP_ID_RGB_GREEN){
+			if(shutdown_enable == QPNP_ID_RGB_GREEN)
+				led_array[i].cdev.brightness = LED_FULL;
+			else
+				led_array[i].cdev.brightness = LED_OFF;
+		}
+		else if(led_array[i].id == QPNP_ID_RGB_BLUE){
+			if(shutdown_enable == QPNP_ID_RGB_BLUE)
+				led_array[i].cdev.brightness = LED_FULL;
+			else
+				led_array[i].cdev.brightness = LED_OFF;
+		}
+		else
+			led_array[i].cdev.brightness = LED_OFF;
+
+		__qpnp_led_work(led_array+i, led_array[i].cdev.brightness);
+	}
+}
+
 #ifdef CONFIG_OF
 static struct of_device_id spmi_match_table[] = {
 	{ .compatible = "qcom,leds-qpnp",},
@@ -4240,6 +4321,7 @@ static struct spmi_driver qpnp_leds_driver = {
 	},
 	.probe		= qpnp_leds_probe,
 	.remove		= qpnp_leds_remove,
+	.shutdown	= qpnp_leds_shutdown,
 };
 
 static int __init qpnp_led_init(void)

@@ -221,6 +221,26 @@ int freeze_kernel_threads(void)
 	return error;
 }
 
+void thaw_fingerprintd(void)
+{
+    struct task_struct *g, *p;
+    struct task_struct *curr = current;
+    pm_freezing = false;
+    pm_nosig_freezing = false;
+
+    read_lock(&tasklist_lock);
+    for_each_process_thread(g, p) {
+    /* No other threads should have PF_SUSPEND_TASK set */
+        WARN_ON((p != curr) && (p->flags & PF_SUSPEND_TASK));
+        if(!memcmp(p->comm, "fingerprintd", 13)) 
+            __thaw_task(p);
+    }
+    read_unlock(&tasklist_lock);
+    pm_freezing = true;
+    pm_nosig_freezing = true;
+}
+
+
 void thaw_processes(void)
 {
 	struct task_struct *g, *p;

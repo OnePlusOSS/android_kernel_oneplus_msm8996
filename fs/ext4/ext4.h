@@ -2171,7 +2171,9 @@ extern int search_dir(struct buffer_head *bh,
 		      struct inode *dir,
 		      const struct qstr *d_name,
 		      unsigned int offset,
-		      struct ext4_dir_entry_2 **res_dir);
+		      struct ext4_dir_entry_2 **res_dir,
+		      char *ci_name_buf);
+
 extern int ext4_generic_delete_entry(handle_t *handle,
 				     struct inode *dir,
 				     struct ext4_dir_entry_2 *de_del,

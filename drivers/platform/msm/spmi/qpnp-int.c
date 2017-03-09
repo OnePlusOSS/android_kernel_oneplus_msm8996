@@ -28,6 +28,8 @@
 #include <linux/printk.h>
 #include <linux/ratelimit.h>
 #include <linux/irqchip/qpnp-int.h>
+#include <linux/sched.h>
+#include <linux/wakeup_reason.h>
 
 #include <asm/irq.h>
 
@@ -35,6 +37,8 @@
 #define QPNPINT_NR_IRQS		(16 * 256 * 8)
 /* This value is guaranteed not to be valid for private data */
 #define QPNPINT_INVALID_DATA	0x80000000
+
+static int resume_qpnp_kpdpwr_wakeup_flag = 0;
 
 enum qpnpint_regs {
 	QPNPINT_REG_RT_STS		= 0x10,
@@ -602,6 +606,39 @@ int qpnpint_unregister_controller(struct device_node *node)
 }
 EXPORT_SYMBOL(qpnpint_unregister_controller);
 
+static void init_qpnp_kpdpwr_resume_wakeup_flag(void)
+{
+        resume_qpnp_kpdpwr_wakeup_flag = 0;
+}
+
+static int is_speedup_irq(struct irq_desc *desc, char *irq_name)
+{
+        return strstr(desc->action->name, irq_name) != NULL;
+}
+
+static void set_qpnp_kpdpwr_resume_wakeup_flag(int irq)
+{
+        struct irq_desc *desc;
+        desc = irq_to_desc(irq);
+
+        if (desc && desc->action && desc->action->name) {
+                if (is_speedup_irq(desc, "qpnp_kpdpwr_status")) {
+                        resume_qpnp_kpdpwr_wakeup_flag = 1;
+                }
+        }
+}
+
+int get_qpnp_kpdpwr_resume_wakeup_flag(void)
+{
+        int flag = resume_qpnp_kpdpwr_wakeup_flag;
+
+        pr_debug("%s: flag = %d\n", __func__, flag);
+        /* Clear it for next calling */
+	init_qpnp_kpdpwr_resume_wakeup_flag();
+
+        return flag;
+}
+
 static int __qpnpint_handle_irq(struct spmi_controller *spmi_ctrl,
 		       struct qpnp_irq_spec *spec,
 		       bool show)
@@ -616,6 +653,7 @@ static int __qpnpint_handle_irq(struct spmi_controller *spmi_ctrl,
 	pr_debug("spec slave = %u per = %u irq = %u\n",
 					spec->slave, spec->per, spec->irq);
 
+	init_qpnp_kpdpwr_resume_wakeup_flag();
 	busno = spmi_ctrl->nr;
 	if (busno >= QPNPINT_MAX_BUSSES)
 		return -EINVAL;
@@ -629,6 +667,7 @@ static int __qpnpint_handle_irq(struct spmi_controller *spmi_ctrl,
 	domain = chip_lookup[busno]->domain;
 	irq = irq_find_mapping(domain, hwirq);
 
+	set_qpnp_kpdpwr_resume_wakeup_flag(irq);
 	if (show) {
 		struct irq_desc *desc;
 		const char *name = "null";
@@ -638,9 +677,13 @@ static int __qpnpint_handle_irq(struct spmi_controller *spmi_ctrl,
 			name = "stray irq";
 		else if (desc->action && desc->action->name)
 			name = desc->action->name;
-
+		log_wakeup_reason(irq);
 		pr_warn("%d triggered [0x%01x, 0x%02x,0x%01x] %s\n",
 				irq, spec->slave, spec->per, spec->irq, name);
+		if(strstr(name, "qpnp_kpdpwr_status") != NULL)//qpnp_kpdpwr_status
+	    {
+		    sched_set_boost(1);
+	    }
 	} else {
 		generic_handle_irq(irq);
 	}

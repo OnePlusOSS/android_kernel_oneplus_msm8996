@@ -19,6 +19,8 @@
 #include <linux/stringify.h>
 #include <linux/types.h>
 #include <linux/debugfs.h>
+#include "mdss_oem_config.h"
+
 
 /* panel id type */
 struct panel_id {
@@ -258,6 +260,16 @@ enum mdss_intf_events {
 	MDSS_EVENT_DSI_RESET_WRITE_PTR,
 	MDSS_EVENT_PANEL_TIMING_SWITCH,
 	MDSS_EVENT_MAX,
+	MDSS_EVENT_PANEL_SET_ACL,
+	MDSS_EVENT_PANEL_GET_ACL,
+	MDSS_EVENT_PANEL_SET_MAX_BRIGHTNESS,
+	MDSS_EVENT_PANEL_GET_MAX_BRIGHTNESS,
+	MDSS_EVENT_PANEL_SET_SRGB_MODE,
+	MDSS_EVENT_PANEL_GET_SRGB_MODE,
+	MDSS_EVENT_PANEL_SET_ADOBE_RGB_MODE,
+	MDSS_EVENT_PANEL_GET_ADOBE_RGB_MODE,
+	MDSS_EVENT_PANEL_SET_DCI_P3_MODE,
+	MDSS_EVENT_PANEL_GET_DCI_P3_MODE,
 };
 
 struct lcd_panel_info {

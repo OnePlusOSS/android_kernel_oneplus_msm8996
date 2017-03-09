@@ -27,7 +27,7 @@
 #include <sound/audio_cal_utils.h>
 #include <sound/adsp_err.h>
 #include <linux/qdsp6v2/apr_tal.h>
-
+#include <sound/sounddebug.h>
 #define WAKELOCK_TIMEOUT	5000
 enum {
 	AFE_COMMON_RX_CAL = 0,

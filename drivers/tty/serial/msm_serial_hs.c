@@ -2641,9 +2641,18 @@ static int msm_hs_startup(struct uart_port *uport)
 
 	/* Connect RX */
 	flush_kthread_worker(&msm_uport->rx.kworker);
-	if (rx->flush != FLUSH_SHUTDOWN)
-		disconnect_rx_endpoint(msm_uport);
-	ret = msm_hs_spsconnect_rx(uport);
+    if (rx->flush != FLUSH_SHUTDOWN){
+        //waynechang, 20160413, wait for sps_transfer_one to prevent memory poison overwritten
+        if(msm_uport->rx.pending_flag){
+            ret = wait_event_timeout(msm_uport->rx.wait,
+                                    !msm_uport->rx.pending_flag,
+                                    RX_FLUSH_COMPLETE_TIMEOUT);
+            if(!ret)
+                MSM_HS_ERR("msm_serial_hs: waiting for SPS RX transfer timeout\n");
+        }
+            disconnect_rx_endpoint(msm_uport);
+    }
+    ret = msm_hs_spsconnect_rx(uport);
 	if (ret) {
 		MSM_HS_ERR("msm_serial_hs: SPS connect failed for RX");
 		goto sps_disconnect_tx;

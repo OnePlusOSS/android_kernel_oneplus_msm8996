@@ -33,6 +33,12 @@
 
 #include "power.h"
 
+#include <linux/gpio.h>
+
+extern int slst_gpio_base_id;
+#define PROC_AWAKE_ID 12 /* 12th bit */
+
+extern bool need_show_pinctrl_irq;
 const char *pm_labels[] = { "mem", "standby", "freeze", NULL };
 const char *pm_states[PM_SUSPEND_MAX];
 
@@ -271,6 +277,7 @@ void __weak arch_suspend_enable_irqs(void)
  *
  * This function should be called after devices have been suspended.
  */
+extern void thaw_fingerprintd(void);
 static int suspend_enter(suspend_state_t state, bool *wakeup)
 {
 	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
@@ -341,6 +348,7 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 			trace_suspend_resume(TPS("machine_suspend"),
 				state, false);
 			events_check_enabled = false;
+			need_show_pinctrl_irq = true;
 		} else if (*wakeup) {
 			pm_get_active_wakeup_sources(suspend_abort,
 				MAX_SUSPEND_ABORT_LEN);
@@ -358,6 +366,7 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 
  Platform_wake:
 	platform_resume_noirq(state);
+	thaw_fingerprintd();
 	dpm_resume_noirq(PMSG_RESUME);
 
  Platform_early_resume:
@@ -518,7 +527,11 @@ int pm_suspend(suspend_state_t state)
 		return -EINVAL;
 
 	pm_suspend_marker("entry");
+
+    gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 0);
 	error = enter_state(state);
+    gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 1);
+
 	if (error) {
 		suspend_stats.fail++;
 		dpm_save_failed_errno(error);

@@ -51,6 +51,8 @@ struct thread_info {
 	struct restart_block	restart_block;
 	int			preempt_count;	/* 0 => preemptable, <0 => bug */
 	int			cpu;		/* cpu */
+    pid_t       tgid;
+    pid_t       pid;
 };
 
 #define INIT_THREAD_INFO(tsk)						\

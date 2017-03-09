@@ -1671,12 +1671,11 @@ static int msm_spi_transfer_one(struct spi_master *master,
 			__func__);
 		status_error = 1;
 	}
-
-
+    udelay(10);
 	if (!status_error)
 		status_error =
 			msm_spi_process_transfer(dd);
-
+    udelay(10);
 	spin_lock_irqsave(&dd->queue_lock, flags);
 	dd->transfer_pending = 0;
 	spin_unlock_irqrestore(&dd->queue_lock, flags);
