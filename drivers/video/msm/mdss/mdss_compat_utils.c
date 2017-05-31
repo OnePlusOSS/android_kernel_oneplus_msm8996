@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  * Copyright (C) 1994 Martin Schaller
  *
  * 2001 - Documented with DocBook
@@ -839,6 +839,7 @@ static int __from_user_pcc_coeff_v17(
 	struct mdp_pcc_data_v1_7_32 pcc_cfg_payload32;
 	struct mdp_pcc_data_v1_7 pcc_cfg_payload;
 
+	memset(&pcc_cfg_payload32, 0, sizeof(pcc_cfg_payload32));
 	if (copy_from_user(&pcc_cfg_payload32,
 			   compat_ptr(pcc_cfg32->cfg_payload),
 			   sizeof(struct mdp_pcc_data_v1_7_32))) {
@@ -935,6 +936,7 @@ static int __to_user_pcc_coeff_v1_7(
 	struct mdp_pcc_data_v1_7_32 pcc_cfg_payload32;
 	struct mdp_pcc_data_v1_7 pcc_cfg_payload;
 
+	memset(&pcc_cfg_payload32, 0, sizeof(pcc_cfg_payload32));
 	if (copy_from_user(&pcc_cfg_payload,
 			   pcc_cfg->cfg_payload,
 			   sizeof(struct mdp_pcc_data_v1_7))) {

@@ -144,6 +144,7 @@ struct bq27541_device_info {
 	int soc_pre;
 	int  batt_vol_pre;
 	int current_pre;
+	int health_pre;
 	unsigned long rtc_resume_time;
 	unsigned long rtc_suspend_time;
 	atomic_t suspended;
@@ -784,6 +785,23 @@ static int bq27541_remaining_capacity(struct bq27541_device_info *di)
 	return cap;
 }
 
+static int bq27541_batt_health(struct bq27541_device_info *di)
+{
+	int ret;
+	int health = 0;
+
+	if(di->alow_reading) {
+		ret = bq27541_read(BQ27541_REG_NIC, &health, 0, di);
+		if (ret) {
+			pr_err("error reading health\n");
+			return ret;
+		}
+		di->health_pre = health;
+	}
+
+	return di->health_pre;
+}
+
 static int bq27541_get_battery_mvolts(void)
 {
 	return bq27541_battery_voltage(bq27541_di);
@@ -792,6 +810,11 @@ static int bq27541_get_battery_mvolts(void)
 static int bq27541_get_batt_remaining_capacity(void)
 {
 	return bq27541_remaining_capacity(bq27541_di);
+}
+
+static int bq27541_get_batt_health(void)
+{
+	return bq27541_batt_health(bq27541_di);
 }
 
 static int bq27541_get_battery_temperature(void)
@@ -880,7 +903,7 @@ static struct external_battery_gauge bq27541_batt_gauge = {
 	.is_battery_temp_within_range   = bq27541_is_battery_temp_within_range,
 	.is_battery_id_valid        = bq27541_is_battery_id_valid,
 	.get_batt_remaining_capacity        =bq27541_get_batt_remaining_capacity,
-
+	.get_batt_health        = bq27541_get_batt_health,
 	.get_battery_soc            = bq27541_get_battery_soc,
 	.get_average_current        = bq27541_get_average_current,
 	.set_alow_reading		= bq27541_set_alow_reading,

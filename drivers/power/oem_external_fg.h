@@ -21,6 +21,7 @@ struct external_battery_gauge {
 	bool (*is_battery_id_valid) (void);
 	int (*get_battery_status)(void);
 	int (*get_batt_remaining_capacity) (void);
+	int (*get_batt_health) (void);
 	int (*monitor_for_recharging) (void);
 	int (*get_battery_soc) (void);
 	int (*get_average_current) (void);

@@ -24,6 +24,8 @@
 #include <linux/regulator/consumer.h>
 #include <linux/usb/phy.h>
 #include <linux/usb/msm_hsusb.h>
+#include <linux/oneplus/boot_mode.h>
+#include <linux/project_info.h>
 #define PHY_EYE_DIAGRAM_DEBUG
 #ifdef PHY_EYE_DIAGRAM_DEBUG
 #include <linux/proc_fs.h>
@@ -1364,8 +1366,10 @@ static int qusb_phy_probe(struct platform_device *pdev)
 			dev_dbg(dev, "error allocating memory for emu_dcm_reset_seq\n");
 		}
 	}
-
-	of_get_property(dev->of_node, "qcom,qusb-phy-init-seq", &size);
+	if(get_boot_mode() == MSM_BOOT_MODE__NORMAL)
+		of_get_property(dev->of_node, "qcom,qusb-phy-init-seq", &size);
+	else
+		of_get_property(dev->of_node, "qcom,qusb-phy-init-seq-rf", &size);
 	if (size) {
 		qphy->qusb_phy_init_seq = devm_kzalloc(dev,
 						size, GFP_KERNEL);
@@ -1376,11 +1380,16 @@ static int qusb_phy_probe(struct platform_device *pdev)
 				dev_err(dev, "invalid init_seq_len\n");
 				return -EINVAL;
 			}
-
-			of_property_read_u32_array(dev->of_node,
-				"qcom,qusb-phy-init-seq",
-				qphy->qusb_phy_init_seq,
-				qphy->init_seq_len);
+			if(get_boot_mode() == MSM_BOOT_MODE__NORMAL)
+				of_property_read_u32_array(dev->of_node,
+					"qcom,qusb-phy-init-seq",
+					qphy->qusb_phy_init_seq,
+					qphy->init_seq_len);
+			else
+				of_property_read_u32_array(dev->of_node,
+					"qcom,qusb-phy-init-seq-rf",
+					qphy->qusb_phy_init_seq,
+					qphy->init_seq_len);
 		} else {
 			dev_err(dev, "error allocating memory for phy_init_seq\n");
 		}

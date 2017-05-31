@@ -219,9 +219,9 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 	struct vfsmount *lower_dir_mnt;
 	struct dentry *lower_dir_dentry = NULL;
 	struct dentry *lower_dentry;
-	const char *name;
+	const struct qstr *name;
 	struct path lower_path;
-	struct qstr this;
+	struct qstr dname;
 	struct sdcardfs_sb_info *sbi;
 
 	sbi = SDCARDFS_SB(dentry->d_sb);
@@ -231,13 +231,13 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 	if (IS_ROOT(dentry))
 		goto out;
 
-	name = dentry->d_name.name;
+	name = &dentry->d_name;
 
 	/* now start the actual lookup procedure */
 	lower_dir_dentry = lower_parent_path->dentry;
 	lower_dir_mnt = lower_parent_path->mnt;
 
-	err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name, LOOKUP_CASE_INSENSITIVE,
+	err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name->name, LOOKUP_CASE_INSENSITIVE,
                                 &lower_path);
 
 	/* check for other cases */
@@ -248,7 +248,7 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 		spin_lock(&lower_dir_dentry->d_lock);
 		list_for_each_entry(child, &lower_dir_dentry->d_subdirs, d_child) {
 			if (child && child->d_inode) {
-				if (strcasecmp(child->d_name.name, name)==0) {
+				if (qstr_case_eq(&child->d_name, name)) {
 					match = dget(child);
 					break;
 				}
@@ -307,14 +307,14 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 		goto out;
 
 	/* instatiate a new negative dentry */
-	this.name = name;
-	this.len = strlen(name);
-	this.hash = full_name_hash(this.name, this.len);
-	lower_dentry = d_lookup(lower_dir_dentry, &this);
+	dname.name = name->name;
+	dname.len = name->len;
+	dname.hash = full_name_hash(dname.name, dname.len);
+	lower_dentry = d_lookup(lower_dir_dentry, &dname);
 	if (lower_dentry)
 		goto setup_lower;
 
-	lower_dentry = d_alloc(lower_dir_dentry, &this);
+	lower_dentry = d_alloc(lower_dir_dentry, &dname);
 	if (!lower_dentry) {
 		err = -ENOMEM;
 		goto out;
@@ -359,7 +359,7 @@ struct dentry *sdcardfs_lookup(struct inode *dir, struct dentry *dentry,
 
 	parent = dget_parent(dentry);
 
-	if(!check_caller_access_to_name(parent->d_inode, dentry->d_name.name)) {
+	if(!check_caller_access_to_name(parent->d_inode, &dentry->d_name)) {
 		ret = ERR_PTR(-EACCES);
 		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n"
                          "	dentry: %s, task:%s\n",
@@ -368,7 +368,7 @@ struct dentry *sdcardfs_lookup(struct inode *dir, struct dentry *dentry,
         }
 
 	/* save current_cred and override it */
-	OVERRIDE_CRED_PTR(SDCARDFS_SB(dir->i_sb), saved_cred);
+	OVERRIDE_CRED_PTR(SDCARDFS_SB(dir->i_sb), saved_cred, SDCARDFS_I(dir));
 
 	sdcardfs_get_lower_path(parent, &lower_parent_path);
 
@@ -392,6 +392,7 @@ struct dentry *sdcardfs_lookup(struct inode *dir, struct dentry *dentry,
 		/* get derived permission */
 		get_derived_permission(parent, dentry);
 		fixup_tmp_permissions(dentry->d_inode);
+		fixup_lower_ownership(dentry, dentry->d_name.name);
 	}
 	/* update parent directory's atime */
 	fsstack_copy_attr_atime(parent->d_inode,
