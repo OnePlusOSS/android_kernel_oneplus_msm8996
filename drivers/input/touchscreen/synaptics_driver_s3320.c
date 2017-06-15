@@ -4346,7 +4346,7 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 		blank = evdata->data;
         TPD_DEBUG("%s blank[%d],event[0x%lx]\n", __func__,*blank,event);
 
-		if((*blank == FB_BLANK_UNBLANK || *blank == FB_BLANK_VSYNC_SUSPEND || *blank == FB_BLANK_NORMAL)\
+		if((*blank == FB_BLANK_UNBLANK /*|| *blank == FB_BLANK_VSYNC_SUSPEND || *blank == FB_BLANK_NORMAL*/)\
             //&& (event == FB_EVENT_BLANK ))
             && (event == FB_EARLY_EVENT_BLANK ))
         {

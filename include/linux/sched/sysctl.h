@@ -130,6 +130,12 @@ extern int sched_boost_handler(struct ctl_table *table, int write,
 extern int sched_window_update_handler(struct ctl_table *table,
 		 int write, void __user *buffer, size_t *lenp, loff_t *ppos);
 
+int affinity_switch_handler(struct ctl_table *table, int write,
+            void __user *buffer, size_t *lenp,
+            loff_t *ppos);
+int affinity_core_handler(struct ctl_table *table, int write,
+            void __user *buffer, size_t *lenp,
+            loff_t *ppos);
 #ifdef CONFIG_SCHED_DEBUG
 static inline unsigned int get_sysctl_timer_migration(void)
 {

@@ -440,6 +440,20 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= sched_hmp_proc_update_handler,
 	},
+    {
+        .procname   = "affinity_switch",
+        .data       = NULL,
+        .maxlen     = sizeof(unsigned int),
+        .mode       = 0644,
+        .proc_handler   = affinity_switch_handler,
+    },
+    {
+        .procname   = "affinity_core",
+        .data       = NULL,
+        .maxlen     = sizeof(unsigned int),
+        .mode       = 0644,
+        .proc_handler   = affinity_core_handler,
+    },
 #ifndef CONFIG_SCHED_QHMP
 	{
 		.procname	= "sched_select_prev_cpu_us",
