@@ -1349,6 +1349,7 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 
 	pinfo = &pdata->panel_info;
 	mipi = &pdata->panel_info.mipi;
+#if 0
 	if (!ctrl_pdata->SRGB_first_on){
 		ctrl_pdata->SRGB_first_on = 1;
 		get_param_lcm_srgb_mode(&(ctrl_pdata->SRGB_mode));
@@ -1381,6 +1382,7 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 			pr_err("%s:srgb mode %d\n",__func__,ctrl_pdata->dci_p3_mode);
 	}
 
+#endif
 	if (mdss_dsi_is_panel_on_interactive(pdata)) {
 		/*
 		 * all interrupts are disabled at LK

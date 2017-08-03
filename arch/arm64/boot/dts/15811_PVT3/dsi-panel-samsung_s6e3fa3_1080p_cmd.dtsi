@@ -114,8 +114,16 @@
 		qcom,mdss-dsi-acl-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-acl-ncmds = <0>;
 		qcom,mdss-dsi-acl-npayload = <1>;
-		qcom,mdss-dsi-panel-srgb-on-command = [39 01 00 00 00 00 02 57 4c];
-		qcom,mdss-dsi-panel-srgb-off-command = [39 01 00 00 00 00 02 57 40];
+		qcom,mdss-dsi-panel-srgb-on-command = [
+			39 01 00 00 00 00 03 F0 5A 5A
+			39 01 00 00 00 00 02 57 A4
+			39 01 00 00 00 00 02 B0 32
+			39 01 00 00 00 00 16 ED B8 03 04 45 E2 10 04 07 C1 4B EB D7 B8 0A BF FF ED 14 FF FF F2
+			39 01 00 00 00 00 03 F0 A5 A5];
+		qcom,mdss-dsi-panel-srgb-off-command = [
+			39 01 00 00 00 00 03 F0 5A 5A
+			39 01 00 00 00 00 02 57 40
+			39 01 00 00 00 00 03 F0 A5 A5];
 		qcom,mdss-dsi-srgb-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-panel-hbm-on-command = [15 01 00 00 00 00 02 53 E8];
 		qcom,mdss-dsi-panel-hbm-off-command = [15 01 00 00 00 00 02 53 28];
