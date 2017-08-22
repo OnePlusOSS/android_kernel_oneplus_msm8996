@@ -9193,8 +9193,11 @@ static int qpnp_check_battery_temp(struct smbchg_chip *chip)
 	charger_present = is_usb_present(chip) | is_dc_present(chip);
 	pr_debug("charger_present=%d\n", charger_present);
 
-	if (!charger_present)
+	if (!charger_present) {
+		if (chip->usb_present)
+			update_usb_status(chip, charger_present, true);
 		return rc;
+	}
 
 	temp = get_prop_batt_temp(chip);
 	pr_debug("temp=%d\n", temp);
@@ -10107,6 +10110,8 @@ static int smbchg_probe(struct spmi_device *spmi)
 		schedule_delayed_work(&chip->re_det_work,
 				msecs_to_jiffies(REDET_DELAY_MS));
 	} else {
+		if (chip->usb_present)
+			update_usb_status(chip, false, true);
 		chip->redect_charger_type_done = true;
 	}
 

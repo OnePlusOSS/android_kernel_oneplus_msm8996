@@ -116,6 +116,23 @@ typedef struct
 }param_crash_record_t;
 /***************************************************/
 
+/****************** PARAM PHONE HISTORY RECORD FEATURE *****************
+* If you want to modify PARAM phone history record struct,             *
+* please sync with                                                     *
+* /kernel/msm-4.4/include/linux/param_rw.h and                         *
+* /bootable/bootloader/edk2/QcomModulePkg/Include/Library/OpParam.h    *
+*                                                                      *
+* wuaijun@system, 2017/04/26, store phone history record in PARAM      *
+************************************************************************/
+typedef struct {
+	param_product_desc_head_t sid_head;
+	int normal_reboot_count;
+	int abnormal_reboot_count;
+	int update_count;
+	int fastboot_count;
+} param_phonehistory_t;
+/***************************************************/
+
 /****************** PARAM CHARGER TYPE RECORD FEATURE ******************
  *                                                              *
  * yangfb@BSP, 2016/09/14, store chager type record in PARAM         *
@@ -234,6 +251,7 @@ typedef enum {
 	PARAM_SID_SALEINFO,
 	PARAM_SID_MISC,
 	PARAM_SID_DOWNLOAD,
+	PARAM_SID_PHONE_HISTORY,
 	PARAM_SID_INVALID
 } param_sid_index_t;
 
@@ -281,6 +299,7 @@ typedef struct
     CHUNK_UNION(crash_record);
     CHUNK_UNION(misc);
 	CHUNK_UNION(download);
+    CHUNK_UNION(phonehistory);
 }global_param_data_t;
 
 int get_param_camera_laser_sensor_offset(uint * laser_sensor_offset);

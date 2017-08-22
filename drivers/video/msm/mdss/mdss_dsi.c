@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -629,6 +629,7 @@ struct buf_data {
 	char *string_buf; /* cmd buf as string, 3 bytes per number */
 	int sblen; /* string buffer length */
 	int sync_flag;
+	struct mutex dbg_mutex; /* mutex to synchronize read/write/flush */
 };
 
 struct mdss_dsi_debugfs_info {
@@ -718,6 +719,7 @@ static ssize_t mdss_dsi_cmd_read(struct file *file, char __user *buf,
 	char *bp;
 	ssize_t ret = 0;
 
+	mutex_lock(&pcmds->dbg_mutex);
 	if (*ppos == 0) {
 		kfree(pcmds->string_buf);
 		pcmds->string_buf = NULL;
@@ -736,6 +738,7 @@ static ssize_t mdss_dsi_cmd_read(struct file *file, char __user *buf,
 		buffer = kmalloc(bsize, GFP_KERNEL);
 		if (!buffer) {
 			pr_err("%s: Failed to allocate memory\n", __func__);
+			mutex_unlock(&pcmds->dbg_mutex);
 			return -ENOMEM;
 		}
 
@@ -771,10 +774,12 @@ static ssize_t mdss_dsi_cmd_read(struct file *file, char __user *buf,
 		kfree(pcmds->string_buf);
 		pcmds->string_buf = NULL;
 		pcmds->sblen = 0;
+		mutex_unlock(&pcmds->dbg_mutex);
 		return 0; /* the end */
 	}
 	ret = simple_read_from_buffer(buf, count, ppos, pcmds->string_buf,
 				      pcmds->sblen);
+	mutex_unlock(&pcmds->dbg_mutex);
 	return ret;
 }
 
@@ -786,6 +791,7 @@ static ssize_t mdss_dsi_cmd_write(struct file *file, const char __user *p,
 	int blen = 0;
 	char *string_buf;
 
+	mutex_lock(&pcmds->dbg_mutex);
 	if (*ppos == 0) {
 		kfree(pcmds->string_buf);
 		pcmds->string_buf = NULL;
@@ -797,6 +803,7 @@ static ssize_t mdss_dsi_cmd_write(struct file *file, const char __user *p,
 	string_buf = krealloc(pcmds->string_buf, blen + 1, GFP_KERNEL);
 	if (!string_buf) {
 		pr_err("%s: Failed to allocate memory\n", __func__);
+		mutex_unlock(&pcmds->dbg_mutex);
 		return -ENOMEM;
 	}
 
@@ -806,6 +813,7 @@ static ssize_t mdss_dsi_cmd_write(struct file *file, const char __user *p,
 	string_buf[blen] = '\0';
 	pcmds->string_buf = string_buf;
 	pcmds->sblen = blen;
+	mutex_unlock(&pcmds->dbg_mutex);
 	return ret;
 }
 
@@ -818,8 +826,11 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 	char *buf, *bufp, *bp;
 	struct dsi_ctrl_hdr *dchdr;
 
-	if (!pcmds->string_buf)
+	mutex_lock(&pcmds->dbg_mutex);
+	if (!pcmds->string_buf) {
+	    mutex_unlock(&pcmds->dbg_mutex);
 		return 0;
+	}
 
 	/*
 	 * Allocate memory for command buffer
@@ -832,6 +843,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 		kfree(pcmds->string_buf);
 		pcmds->string_buf = NULL;
 		pcmds->sblen = 0;
+		mutex_unlock(&pcmds->dbg_mutex);
 		return -ENOMEM;
 	}
 
@@ -857,6 +869,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 			pr_err("%s: dtsi cmd=%x error, len=%d\n",
 				__func__, dchdr->dtype, dchdr->dlen);
 			kfree(buf);
+			mutex_unlock(&pcmds->dbg_mutex);
 			return -EINVAL;
 		}
 		bp += sizeof(*dchdr);
@@ -869,6 +882,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 		pr_err("%s: dcs_cmd=%x len=%d error!\n", __func__,
 				bp[0], len);
 		kfree(buf);
+		mutex_unlock(&pcmds->dbg_mutex);
 		return -EINVAL;
 	}
 
@@ -888,6 +902,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 	if (!on_pcmds->cmds)
 		{
 			pr_err("alloc memory fail\n");
+			mutex_unlock(&pcmds->dbg_mutex);
 			return 0;
 		}
 
@@ -906,6 +921,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 		bp += dchdr->dlen;
 		len -= dchdr->dlen;
 	}
+	mutex_unlock(&pcmds->dbg_mutex);
 	return 0;
 }
 
@@ -919,6 +935,7 @@ struct dentry *dsi_debugfs_create_dcs_cmd(const char *name, umode_t mode,
 				struct dentry *parent, struct buf_data *cmd,
 				struct dsi_panel_cmds *ctrl_cmds)
 {
+	mutex_init(&cmd->dbg_mutex);
 	cmd->buf = ctrl_cmds->buf;
 	cmd->blen = ctrl_cmds->blen;
 	cmd->on_cmds = ctrl_cmds;
