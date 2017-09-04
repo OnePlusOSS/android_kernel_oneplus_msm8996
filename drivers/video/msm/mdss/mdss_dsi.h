@@ -559,6 +559,12 @@ struct mdss_dsi_ctrl_pdata {
 		int dci_p3_first_on;
 		struct dsi_panel_cmds dci_p3_on_cmds;
 		struct dsi_panel_cmds dci_p3_off_cmds;
+		int night_mode;
+		struct dsi_panel_cmds night_mode_on_cmds;
+		struct dsi_panel_cmds night_mode_off_cmds;
+		int oneplus_mode;
+		struct dsi_panel_cmds oneplus_mode_on_cmds;
+		struct dsi_panel_cmds oneplus_mode_off_cmds;
 
 	struct kobject *kobj;
 	int fb_node;
@@ -699,6 +705,10 @@ int mdss_dsi_panel_set_adobe_rgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int leve
 int mdss_dsi_panel_get_adobe_rgb_mode(struct mdss_dsi_ctrl_pdata *ctrl);
 int mdss_dsi_panel_set_dci_p3_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
 int mdss_dsi_panel_get_dci_p3_mode(struct mdss_dsi_ctrl_pdata *ctrl);
+int mdss_dsi_panel_set_night_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_get_night_mode(struct mdss_dsi_ctrl_pdata *ctrl);
+int mdss_dsi_panel_set_oneplus_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_get_oneplus_mode(struct mdss_dsi_ctrl_pdata *ctrl);
 
 
 static inline const char *__mdss_dsi_pm_name(enum dsi_pm_type module)

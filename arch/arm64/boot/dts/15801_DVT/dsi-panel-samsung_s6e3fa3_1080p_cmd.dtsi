@@ -117,13 +117,47 @@
 			39 01 00 00 00 00 03 F0 5A 5A
 			39 01 00 00 00 00 02 57 A4
 			39 01 00 00 00 00 02 B0 32
-			39 01 00 00 00 00 16 ED B8 03 04 45 E2 10 04 07 C1 4B EB D7 B8 0A BF FF ED 14 FF FF F2
+			39 01 00 00 00 00 16 ED B8 03 04 45 E2 10 04 07 C1 4B EB D7 B8 0A BF FF ED 14 FA F6 E0
 			39 01 00 00 00 00 03 F0 A5 A5];
 		qcom,mdss-dsi-panel-srgb-off-command = [
 			39 01 00 00 00 00 03 F0 5A 5A
 			39 01 00 00 00 00 02 57 40
 			39 01 00 00 00 00 03 F0 A5 A5];
 		qcom,mdss-dsi-srgb-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-panel-dci-p3-on-command = [
+		39 01 00 00 00 00 03 F0 5A 5A
+		39 01 00 00 00 00 02 57 A4
+		39 01 00 00 00 00 02 B0 32
+		39 01 00 00 00 00 16 ED D8 00 00 16 D2 00 08 08 C3 1C F1 CF E8 02 C8 E9 DF 00 FF F6 Da
+		39 01 00 00 00 00 03 f0 A5 A5];
+		qcom,mdss-dsi-panel-dci-p3-off-command = [
+		39 01 00 00 00 00 03 F0 5A 5A
+		39 01 00 00 00 00 02 57 40
+		39 01 00 00 00 00 03 F0 A5 A5];
+		qcom,mdss-dsi-dci-p3-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-panel-night-mode-on-command = [
+		39 01 00 00 00 00 03 F0 5A 5A
+		39 01 00 00 00 00 02 57 A4
+		39 01 00 00 00 00 02 B0 32
+		39 01 00 00 00 00 16 ED B8 03 04 45 E2 10 04 07 C1 4B EB D7 B8 0A BF FF ED 14 FF FF FF
+		39 01 00 00 00 00 03 f0 A5 A5];
+		qcom,mdss-dsi-panel-night-mode-off-command = [
+		39 01 00 00 00 00 03 F0 5A 5A
+		39 01 00 00 00 00 02 57 40
+		39 01 00 00 00 00 03 F0 A5 A5
+		];
+		qcom,mdss-dsi-panel-oneplus-mode-on-command = [
+		39 01 00 00 00 00 03 F0 5A 5A
+		39 01 00 00 00 00 02 57 A4
+		39 01 00 00 00 00 02 B0 32
+		39 01 00 00 00 00 16 ED b4 02 04 05 ff 02 00 00 ff 00 ff ff f0 00 f0 e0 e1 18 ff fe fB
+		39 01 00 00 00 00 03 F0 A5 A5];
+		qcom,mdss-dsi-panel-oneplus-mode-off-command = [
+		39 01 00 00 00 00 03 F0 5A 5A
+		39 01 00 00 00 00 02 57 40
+		39 01 00 00 00 00 03 F0 A5 A5];
+		qcom,mdss-dsi-night-mode-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-oneplus-mode-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-panel-hbm-on-command = [15 01 00 00 00 00 02 53 E8];
 		qcom,mdss-dsi-panel-hbm-off-command = [15 01 00 00 00 00 02 53 28];
 		qcom,mdss-dsi-hbm-command-state = "dsi_hs_mode";

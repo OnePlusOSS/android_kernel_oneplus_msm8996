@@ -45,6 +45,7 @@
 #define INVALID_XIN_ID     0xFF
 
 static char panel_reg[2] = {DEFAULT_READ_PANEL_POWER_MODE_REG, 0x00};
+static DEFINE_MUTEX(mdss_debug_lock);
 
 static int panel_debug_base_open(struct inode *inode, struct file *file)
 {
@@ -57,11 +58,13 @@ static int panel_debug_base_open(struct inode *inode, struct file *file)
 static int panel_debug_base_release(struct inode *inode, struct file *file)
 {
 	struct mdss_debug_base *dbg = file->private_data;
+	mutex_lock(&mdss_debug_lock);
 	if (dbg && dbg->buf) {
 		kfree(dbg->buf);
 		dbg->buf_len = 0;
 		dbg->buf = NULL;
 	}
+	mutex_unlock(&mdss_debug_lock);
 	return 0;
 }
 
@@ -368,11 +371,13 @@ static int mdss_debug_base_open(struct inode *inode, struct file *file)
 static int mdss_debug_base_release(struct inode *inode, struct file *file)
 {
 	struct mdss_debug_base *dbg = file->private_data;
+	mutex_lock(&mdss_debug_lock);
 	if (dbg && dbg->buf) {
 		kfree(dbg->buf);
 		dbg->buf_len = 0;
 		dbg->buf = NULL;
 	}
+	mutex_unlock(&mdss_debug_lock);
 	return 0;
 }
 

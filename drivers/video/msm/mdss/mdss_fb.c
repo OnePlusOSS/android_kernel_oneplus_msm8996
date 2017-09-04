@@ -1005,6 +1005,88 @@ static DEVICE_ATTR(DCI_P3, S_IRUGO | S_IWUSR,
 	mdss_fb_get_dci_p3_mode, mdss_fb_set_dci_p3_mode);
 
 
+static ssize_t mdss_fb_get_night_mode(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	int ret = 0;
+	int level = 0;
+
+	level = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_GET_NIGHT_MODE,
+			NULL);
+	ret=scnprintf(buf, PAGE_SIZE, "mode = %d\n"
+					                        "0-->Night Mode OFF\n"
+											"1-->Night Mode ON\n",
+										    level);
+	return ret;
+}
+
+static ssize_t mdss_fb_set_night_mode(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	int rc = 0;
+	int level = 0;
+
+	rc = kstrtoint(buf, 10, &level);
+	if (rc) {
+		pr_err("kstrtoint failed. rc=%d\n", rc);
+		return rc;
+	}
+    rc = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_SET_NIGHT_MODE,
+	    (void *)(unsigned long)level);
+	if (rc)
+		pr_err("Fail to set Night mode: %d\n", level);
+
+	return count;
+}
+
+static DEVICE_ATTR(night_mode, S_IRUGO | S_IWUSR,
+	mdss_fb_get_night_mode, mdss_fb_set_night_mode);
+
+static ssize_t mdss_fb_get_oneplus_mode(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	int ret = 0;
+	int level = 0;
+
+	level = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_GET_ONEPLUS_MODE,
+			NULL);
+	ret=scnprintf(buf, PAGE_SIZE, "mode = %d\n"
+					                        "0-->Oneplus Mode OFF\n"
+											"1-->Oneplus Mode ON\n",
+										    level);
+	return ret;
+}
+
+static ssize_t mdss_fb_set_oneplus_mode(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	int rc = 0;
+	int level = 0;
+
+	rc = kstrtoint(buf, 10, &level);
+	if (rc) {
+		pr_err("kstrtoint failed. rc=%d\n", rc);
+		return rc;
+	}
+    rc = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_SET_ONEPLUS_MODE,
+	    (void *)(unsigned long)level);
+	if (rc)
+		pr_err("Fail to set Oneplus mode: %d\n", level);
+
+	return count;
+}
+
+static DEVICE_ATTR(oneplus_mode, S_IRUGO | S_IWUSR,
+	mdss_fb_get_oneplus_mode, mdss_fb_set_oneplus_mode);
+
 static DEVICE_ATTR(msm_fb_type, S_IRUGO, mdss_fb_get_type, NULL);
 static DEVICE_ATTR(msm_fb_split, S_IRUGO | S_IWUSR, mdss_fb_show_split,
 					mdss_fb_store_split);
@@ -1037,6 +1119,8 @@ static struct attribute *mdss_fb_attrs[] = {
 	&dev_attr_SRGB.attr,
 		&dev_attr_Adobe_RGB.attr,
 		&dev_attr_DCI_P3.attr,
+	&dev_attr_night_mode.attr,
+	&dev_attr_oneplus_mode.attr,
 
 	NULL,
 };
@@ -2310,6 +2394,10 @@ err_put:
 	dma_buf_put(mfd->fbmem_buf);
 fb_mmap_failed:
 	ion_free(mfd->fb_ion_client, mfd->fb_ion_handle);
+	mfd->fb_attachment = NULL;
+	mfd->fb_table = NULL;
+	mfd->fb_ion_handle = NULL;
+	mfd->fbmem_buf = NULL;
 	return rc;
 }
 

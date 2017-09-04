@@ -31,6 +31,7 @@
 //DCI-P3 mode
 #define MDSS_OEM_DCI_P3_MODE
 
+#define MDSS_OEM_Night_MODE
 
 
 #endif

@@ -323,6 +323,62 @@ int mdss_dsi_panel_get_dci_p3_mode(struct mdss_dsi_ctrl_pdata *ctrl)
 {
    return ctrl->dci_p3_mode;
 }
+int mdss_dsi_panel_set_night_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
+{
+	struct dsi_panel_cmds *night_mode_on_cmds;
+	struct dsi_panel_cmds *night_mode_off_cmds;
+
+	night_mode_on_cmds = &ctrl->night_mode_on_cmds; //night mode same as sRGB mode
+	night_mode_off_cmds = &ctrl->night_mode_off_cmds;//night mode same as sRGB mode
+    if (level){
+        if (night_mode_on_cmds->cmd_cnt){
+            mdss_dsi_panel_cmds_send(ctrl, night_mode_on_cmds, CMD_REQ_COMMIT);
+            pr_err("Night  Mode On (night mode).\n");
+        } else{
+            pr_err("This panel not support Night mode on (night mode).\n");
+        }
+    } else{
+        if (night_mode_off_cmds->cmd_cnt){
+            mdss_dsi_panel_cmds_send(ctrl, night_mode_off_cmds, CMD_REQ_COMMIT);
+            pr_err("Night Mode off (night mode).\n");
+        } else{
+            pr_err("This panel not support night mode off (night mode).\n");
+        }
+    }
+	return 0;
+}
+int mdss_dsi_panel_get_night_mode(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+   return ctrl->night_mode;
+}
+int mdss_dsi_panel_set_oneplus_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
+{
+	struct dsi_panel_cmds *oneplus_mode_on_cmds;
+	struct dsi_panel_cmds *oneplus_mode_off_cmds;
+
+	oneplus_mode_on_cmds = &ctrl->oneplus_mode_on_cmds; //night mode same as sRGB mode
+	oneplus_mode_off_cmds = &ctrl->oneplus_mode_off_cmds;//night mode same as sRGB mode
+    if (level){
+        if (oneplus_mode_on_cmds->cmd_cnt){
+            mdss_dsi_panel_cmds_send(ctrl, oneplus_mode_on_cmds, CMD_REQ_COMMIT);
+            pr_err("oneplus  Mode On (oneplus mode).\n");
+        } else{
+            pr_err("This panel not support oneplus mode on (oneplus mode).\n");
+        }
+    } else{
+        if (oneplus_mode_off_cmds->cmd_cnt){
+            mdss_dsi_panel_cmds_send(ctrl, oneplus_mode_off_cmds, CMD_REQ_COMMIT);
+            pr_err("oneplus Mode off (oneplus mode).\n");
+        } else{
+            pr_err("This panel not support oneplus mode off (oneplus mode).\n");
+        }
+    }
+	return 0;
+}
+int mdss_dsi_panel_get_oneplus_mode(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+   return ctrl->oneplus_mode;
+}
 
 
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
@@ -1093,6 +1149,12 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
     if (mdss_dsi_panel_get_dci_p3_mode(ctrl)){
         mdss_dsi_panel_set_dci_p3_mode(ctrl, mdss_dsi_panel_get_dci_p3_mode(ctrl));
     }
+	if (mdss_dsi_panel_get_night_mode(ctrl)){
+	mdss_dsi_panel_set_night_mode(ctrl, mdss_dsi_panel_get_night_mode(ctrl));
+	}
+	if (mdss_dsi_panel_get_oneplus_mode(ctrl)){
+	mdss_dsi_panel_set_oneplus_mode(ctrl, mdss_dsi_panel_get_oneplus_mode(ctrl));
+	}
 	if (pinfo->compression_mode == COMPRESSION_DSC)
 		mdss_dsi_panel_dsc_pps_send(ctrl, pinfo);
 
@@ -2905,6 +2967,18 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dci_p3_off_cmds,
 		"qcom,mdss-dsi-panel-dci-p3-off-command",
 		"qcom,mdss-dsi-dci-p3-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->night_mode_on_cmds,
+		"qcom,mdss-dsi-panel-night-mode-on-command",
+		"qcom,mdss-dsi-night-mode-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->night_mode_off_cmds,
+		"qcom,mdss-dsi-panel-night-mode-off-command",
+		"qcom,mdss-dsi-night-mode-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->oneplus_mode_on_cmds,
+		"qcom,mdss-dsi-panel-oneplus-mode-on-command",
+		"qcom,mdss-dsi-oneplus-mode-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->oneplus_mode_off_cmds,
+		"qcom,mdss-dsi-panel-oneplus-mode-off-command",
+		"qcom,mdss-dsi-oneplus-mode-command-state");
 
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->hbm_on_cmds,
 		"qcom,mdss-dsi-panel-hbm-on-command",
