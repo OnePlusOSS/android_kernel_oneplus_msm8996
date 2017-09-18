@@ -151,7 +151,7 @@
 		39 01 00 00 00 00 03 F0 5A 5A
 		39 01 00 00 00 00 02 57 A4
 		39 01 00 00 00 00 02 B0 32
-		39 01 00 00 00 00 16 ED b4 02 04 05 ff 02 00 00 ff 00 ff ff f0 00 f0 e0 e1 18 ff fe fB
+		39 01 00 00 00 00 16 ED C0 05 03 21 FF 00 09 0C E8 28 E2 DB A1 01 A7 EF EF 00 F8 FF F1
 		39 01 00 00 00 00 03 F0 A5 A5];
 		qcom,mdss-dsi-panel-oneplus-mode-off-command = [
 		39 01 00 00 00 00 03 F0 5A 5A
