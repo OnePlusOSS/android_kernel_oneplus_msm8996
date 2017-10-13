@@ -127,7 +127,7 @@ static int recover_dentry(struct inode *inode, struct page *ipage,
 		goto out;
 	}
 retry:
-	de = __f2fs_find_entry(dir, &fname, &page);
+	de = __f2fs_find_entry(dir, &fname, &page, NULL);
 	if (de && inode->i_ino == le32_to_cpu(de->ino))
 		goto out_unmap_put;
 
@@ -180,14 +180,12 @@ static void recover_inode(struct inode *inode, struct page *page)
 
 	inode->i_mode = le16_to_cpu(raw->i_mode);
 	f2fs_i_size_write(inode, le64_to_cpu(raw->i_size));
-	inode->i_atime.tv_sec = le64_to_cpu(raw->i_atime);
+	inode->i_atime.tv_sec = le64_to_cpu(raw->i_mtime);
 	inode->i_ctime.tv_sec = le64_to_cpu(raw->i_ctime);
 	inode->i_mtime.tv_sec = le64_to_cpu(raw->i_mtime);
-	inode->i_atime.tv_nsec = le32_to_cpu(raw->i_atime_nsec);
+	inode->i_atime.tv_nsec = le32_to_cpu(raw->i_mtime_nsec);
 	inode->i_ctime.tv_nsec = le32_to_cpu(raw->i_ctime_nsec);
 	inode->i_mtime.tv_nsec = le32_to_cpu(raw->i_mtime_nsec);
-
-	F2FS_I(inode)->i_advise = raw->i_advise;
 
 	if (file_enc_name(inode))
 		name = "<encrypted>";
@@ -198,8 +196,33 @@ static void recover_inode(struct inode *inode, struct page *page)
 			ino_of_node(page), name);
 }
 
-static int find_fsync_dnodes(struct f2fs_sb_info *sbi, struct list_head *head,
-				bool check_only)
+static bool is_same_inode(struct inode *inode, struct page *ipage)
+{
+	struct f2fs_inode *ri = F2FS_INODE(ipage);
+	struct timespec disk;
+
+	if (!IS_INODE(ipage))
+		return true;
+
+	disk.tv_sec = le64_to_cpu(ri->i_ctime);
+	disk.tv_nsec = le32_to_cpu(ri->i_ctime_nsec);
+	if (timespec_compare(&inode->i_ctime, &disk) > 0)
+		return false;
+
+	disk.tv_sec = le64_to_cpu(ri->i_atime);
+	disk.tv_nsec = le32_to_cpu(ri->i_atime_nsec);
+	if (timespec_compare(&inode->i_atime, &disk) > 0)
+		return false;
+
+	disk.tv_sec = le64_to_cpu(ri->i_mtime);
+	disk.tv_nsec = le32_to_cpu(ri->i_mtime_nsec);
+	if (timespec_compare(&inode->i_mtime, &disk) > 0)
+		return false;
+
+	return true;
+}
+
+static int find_fsync_dnodes(struct f2fs_sb_info *sbi, struct list_head *head)
 {
 	struct curseg_info *curseg;
 	struct page *page = NULL;
@@ -225,9 +248,11 @@ static int find_fsync_dnodes(struct f2fs_sb_info *sbi, struct list_head *head,
 			goto next;
 
 		entry = get_fsync_inode(head, ino_of_node(page));
-		if (!entry) {
-			if (!check_only &&
-					IS_INODE(page) && is_dent_dnode(page)) {
+		if (entry) {
+			if (!is_same_inode(entry->inode, page))
+				goto next;
+		} else {
+			if (IS_INODE(page) && is_dent_dnode(page)) {
 				err = recover_inode_page(sbi, page);
 				if (err)
 					break;
@@ -380,9 +405,11 @@ static int do_recover_data(struct f2fs_sb_info *sbi, struct inode *inode,
 	if (IS_INODE(page)) {
 		recover_inline_xattr(inode, page);
 	} else if (f2fs_has_xattr_block(ofs_of_node(page))) {
-		err = recover_xattr_data(inode, page, blkaddr);
-		if (!err)
-			recovered++;
+		/*
+		 * Deprecated; xattr blocks should be found from cold log.
+		 * But, we should remain this for backward compatibility.
+		 */
+		recover_xattr_data(inode, page, blkaddr);
 		goto out;
 	}
 
@@ -427,10 +454,8 @@ retry_dn:
 			continue;
 		}
 
-		if (!file_keep_isize(inode) &&
-			(i_size_read(inode) <= ((loff_t)start << PAGE_SHIFT)))
-			f2fs_i_size_write(inode,
-				(loff_t)(start + 1) << PAGE_SHIFT);
+		if ((start + 1) << PAGE_SHIFT > i_size_read(inode))
+			f2fs_i_size_write(inode, (start + 1) << PAGE_SHIFT);
 
 		/*
 		 * dest is reserved block, invalidate src block
@@ -482,10 +507,8 @@ err:
 	f2fs_put_dnode(&dn);
 out:
 	f2fs_msg(sbi->sb, KERN_NOTICE,
-		"recover_data: ino = %lx (i_size: %s) recovered = %d, err = %d",
-		inode->i_ino,
-		file_keep_isize(inode) ? "keep" : "recover",
-		recovered, err);
+		"recover_data: ino = %lx, recovered = %d blocks, err = %d",
+		inode->i_ino, recovered, err);
 	return err;
 }
 
@@ -553,8 +576,10 @@ next:
 
 int recover_fsync_data(struct f2fs_sb_info *sbi, bool check_only)
 {
+	struct curseg_info *curseg = CURSEG_I(sbi, CURSEG_WARM_NODE);
 	struct list_head inode_list;
 	struct list_head dir_list;
+	block_t blkaddr;
 	int err;
 	int ret = 0;
 	bool need_writecp = false;
@@ -570,8 +595,10 @@ int recover_fsync_data(struct f2fs_sb_info *sbi, bool check_only)
 	/* prevent checkpoint */
 	mutex_lock(&sbi->cp_mutex);
 
+	blkaddr = NEXT_FREE_BLKADDR(sbi, curseg);
+
 	/* step #1: find fsynced inode numbers */
-	err = find_fsync_dnodes(sbi, &inode_list, check_only);
+	err = find_fsync_dnodes(sbi, &inode_list);
 	if (err || list_empty(&inode_list))
 		goto out;
 

@@ -302,7 +302,7 @@ struct msm_eeprom_cfg_data {
 	enum eeprom_cfg_type_t cfgtype;
 	uint8_t is_supported;
 	union {
-		char eeprom_name[MAX_SENSOR_NAME];
+		char eeprom_name[MAX_EEPROM_NAME];
 		struct eeprom_get_t get_data;
 		struct eeprom_read_t read_data;
 		struct eeprom_write_t write_data;
@@ -387,6 +387,9 @@ struct reg_settings_ois_t {
 	enum msm_camera_i2c_data_type data_type;
 	enum msm_ois_i2c_operation i2c_operation;
 	uint32_t delay;
+#define OIS_REG_DATA_SEQ_MAX 128
+    unsigned char reg_data_seq[OIS_REG_DATA_SEQ_MAX];
+    uint32_t reg_data_seq_size;
 };
 
 struct msm_ois_params_t {

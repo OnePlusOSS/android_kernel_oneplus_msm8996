@@ -474,6 +474,10 @@ bool msm_smem_compare_buffers(void *clt, int fd, void *priv)
 		return false;
 	}
 	handle = ion_import_dma_buf(client->clnt, fd);
+	if (IS_ERR(handle)) {
+		pr_err("%s failed:%ld\n", __func__, (long)handle);
+		return false;
+	}
 	ret = handle == priv;
 	handle ? ion_free(client->clnt, handle) : 0;
 	return ret;

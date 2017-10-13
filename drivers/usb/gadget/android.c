@@ -2782,7 +2782,12 @@ static unsigned int fsg_num_buffers = CONFIG_USB_GADGET_STORAGE_NUM_BUFFERS;
 #else
 #define fsg_num_buffers	CONFIG_USB_GADGET_STORAGE_NUM_BUFFERS
 #endif /* CONFIG_USB_GADGET_DEBUG_FILES */
-static struct fsg_module_parameters fsg_mod_data;
+static struct fsg_module_parameters fsg_mod_data={
+      .ro[0]  = true,
+      .removable[0] = false,
+      .cdrom[0] = true,
+      .luns   = 1,
+};
 FSG_MODULE_PARAMETERS(/* no prefix */, fsg_mod_data);
 
 static int mass_storage_function_init(struct android_usb_function *f,
@@ -3617,7 +3622,7 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 		}
 		INIT_LIST_HEAD(&conf->enabled_functions);
 	}
-
+    pr_err("android_usb: functions_store'%s'\n",buff);
 	strlcpy(buf, buff, sizeof(buf));
 	b = strim(buf);
 

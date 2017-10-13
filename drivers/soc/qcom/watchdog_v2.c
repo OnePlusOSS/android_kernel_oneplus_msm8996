@@ -562,7 +562,7 @@ static void init_watchdog_data(struct msm_watchdog_data *wdog_dd)
 	wdog_dd->min_slack_ticks = UINT_MAX;
 	wdog_dd->min_slack_ns = ULLONG_MAX;
 	configure_bark_dump(wdog_dd);
-	timeout = (wdog_dd->bark_time * WDT_HZ)/1000;
+	timeout = (wdog_dd->bark_time * WDT_HZ)/1000+5;
 	__raw_writel(timeout, wdog_dd->base + WDT0_BARK_TIME);
 	__raw_writel(timeout + 3*WDT_HZ, wdog_dd->base + WDT0_BITE_TIME);
 

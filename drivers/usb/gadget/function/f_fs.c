@@ -31,6 +31,8 @@
 #include <linux/aio.h>
 #include <linux/mmu_context.h>
 #include <linux/poll.h>
+#include <linux/pm_qos.h>
+#include <linux/cpufreq.h>
 
 #include "u_fs.h"
 #include "u_f.h"
@@ -38,6 +40,12 @@
 #include "configfs.h"
 
 #define FUNCTIONFS_MAGIC	0xa647361 /* Chosen by a honest dice roll ;) */
+
+static int adb_pm_qos_enable = 1;
+#define PM_QOS_REQUEST_SIZE	       1024
+#define ADB_QOS_TIMEOUT                500000
+
+static struct pm_qos_request adb_little_cpu_qos;
 
 /* Reference counter handling */
 static void ffs_data_get(struct ffs_data *ffs);
@@ -1004,7 +1012,7 @@ error_lock:
 	mutex_unlock(&epfile->mutex);
 error:
 	kfree(data);
-	if (ret < 0)
+	if (ret < 0 && ret != -ERESTARTSYS)
 		pr_err_ratelimited("Error: returning %zd value\n", ret);
 	return ret;
 }
@@ -1022,6 +1030,9 @@ ffs_epfile_write(struct file *file, const char __user *buf, size_t len,
 	io_data.buf = (char * __user)buf;
 	io_data.len = len;
 
+	if(len > PM_QOS_REQUEST_SIZE && adb_pm_qos_enable)
+		pm_qos_update_request_timeout(&adb_little_cpu_qos, MAX_CPUFREQ, ADB_QOS_TIMEOUT);
+
 	return ffs_epfile_io(file, &io_data);
 }
 
@@ -1030,13 +1041,19 @@ ffs_epfile_read(struct file *file, char __user *buf, size_t len, loff_t *ptr)
 {
 	struct ffs_io_data io_data;
 
+	struct ffs_epfile *epfile = file->private_data;
+	bool adb_read_flag = false;
 	ENTER();
 
 	io_data.aio = false;
 	io_data.read = true;
 	io_data.buf = buf;
 	io_data.len = len;
+	if ((strcmp(epfile->name, "ep1") == 0) || (strcmp(epfile->name, "ep2") == 0))
+				adb_read_flag = true;
 
+	if(len > PM_QOS_REQUEST_SIZE && adb_read_flag && adb_pm_qos_enable)
+		pm_qos_update_request_timeout(&adb_little_cpu_qos, MAX_CPUFREQ, ADB_QOS_TIMEOUT);
 	return ffs_epfile_io(file, &io_data);
 }
 
@@ -1745,6 +1762,8 @@ static int ffs_epfiles_create(struct ffs_data *ffs)
 	}
 
 	ffs->epfiles = epfiles;
+	pm_qos_add_request(&adb_little_cpu_qos, PM_QOS_C0_CPUFREQ_MIN, MIN_CPUFREQ);
+
 	return 0;
 }
 
@@ -1763,6 +1782,7 @@ static void ffs_epfiles_destroy(struct ffs_epfile *epfiles, unsigned count)
 			epfile->dentry = NULL;
 		}
 	}
+	pm_qos_remove_request(&adb_little_cpu_qos);
 
 	kfree(epfiles);
 }
@@ -3653,3 +3673,46 @@ static char *ffs_prepare_buffer(const char __user *buf, size_t len,
 DECLARE_USB_FUNCTION_INIT(ffs, ffs_alloc_inst, ffs_alloc);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Michal Nazarewicz");
+
+static ssize_t show_adb_pm_qos(struct kobject *kobj, struct attribute *attr, char *buf)
+{
+        int ret;
+
+        ret = sprintf(buf, "%d\n", adb_pm_qos_enable);
+
+        return ret;
+}
+
+static ssize_t store_adb_pm_qos(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
+{
+        int ret;
+        int debug;
+
+        ret = sscanf(buf, "%u", &debug);
+        if (ret != 1)
+                goto fail;
+
+        adb_pm_qos_enable = debug;
+        pr_info("%s: adb_pm_qos_enable = %u\n", __func__, adb_pm_qos_enable);
+
+        return count;
+
+fail:
+        pr_err("usage: echo 0|1 > /sys/power/adb_pm_qos\n\n");
+        return -EINVAL;
+}
+
+define_one_global_rw(adb_pm_qos);
+
+static int __init adb_pm_qos_debug_init(void)
+{
+        int error;
+
+        error = sysfs_create_file(power_kobj, &adb_pm_qos.attr);
+        if (error)
+                return error;
+
+        return 0;
+}
+
+late_initcall(adb_pm_qos_debug_init);

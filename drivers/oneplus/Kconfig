@@ -1,0 +1,10 @@
+config OEM_DEBUG_SUPORT
+        bool
+        default y
+
+config OEM_TRACE_SUPORT
+	default y
+	depends on OEM_DEBUG_SUPORT
+	bool "OEM debug function, enable it will register the device, which under /dev/otracer."
+
+source "drivers/oneplus/coretech/Kconfig"

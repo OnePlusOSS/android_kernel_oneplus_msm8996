@@ -3562,13 +3562,19 @@ static int packet_notifier(struct notifier_block *this,
 				}
 				if (msg == NETDEV_UNREGISTER) {
 					packet_cached_dev_reset(po);
-					fanout_release(sk);
+					// modify by xcb for fix RAINO-3940 might_sleep issue
+					//fanout_release(sk);
+
 					po->ifindex = -1;
 					if (po->prot_hook.dev)
 						dev_put(po->prot_hook.dev);
 					po->prot_hook.dev = NULL;
 				}
 				spin_unlock(&po->bind_lock);
+				// modify by xcb for fix RAINO-3940 might_sleep issue
+				if (msg == NETDEV_UNREGISTER) {
+					fanout_release(sk);
+				}
 			}
 			break;
 		case NETDEV_UP:

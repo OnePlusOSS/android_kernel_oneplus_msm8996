@@ -155,7 +155,7 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 		other_file = global_page_state(NR_FILE_PAGES) + zcache_pages() -
 			global_page_state(NR_SHMEM) -
 			total_swapcache_pages();
-		other_free = global_page_state(NR_FREE_PAGES);
+		other_free = global_page_state(NR_FREE_PAGES) - global_page_state(NR_FREE_DEFRAG_POOL);
 
 		atomic_set(&shift_adj, 1);
 		trace_almk_vmpressure(pressure, other_free, other_file);
@@ -169,7 +169,7 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 			global_page_state(NR_SHMEM) -
 			total_swapcache_pages();
 
-		other_free = global_page_state(NR_FREE_PAGES);
+		other_free = global_page_state(NR_FREE_PAGES) - global_page_state(NR_FREE_DEFRAG_POOL);
 
 		if ((other_free < lowmem_minfree[array_size - 1]) &&
 			(other_file < vmpressure_file_min)) {
@@ -401,7 +401,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	if (mutex_lock_interruptible(&scan_mutex) < 0)
 		return 0;
 
-	other_free = global_page_state(NR_FREE_PAGES);
+	other_free = global_page_state(NR_FREE_PAGES) - global_page_state(NR_FREE_DEFRAG_POOL);
 
 	if (global_page_state(NR_SHMEM) + total_swapcache_pages() <
 		global_page_state(NR_FILE_PAGES) + zcache_pages())
@@ -503,6 +503,8 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 				"   Total reserve is %ldkB\n" \
 				"   Total free pages is %ldkB\n" \
 				"   Total file cache is %ldkB\n" \
+				"   SHMEM is %ldkB\n" \
+				"   SwapCached is %ldkB\n" \
 				"   Total zcache is %ldkB\n" \
 				"   GFP mask is 0x%x\n",
 			     selected->comm, selected->pid,
@@ -518,6 +520,10 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			     global_page_state(NR_FREE_PAGES) *
 				(long)(PAGE_SIZE / 1024),
 			     global_page_state(NR_FILE_PAGES) *
+				(long)(PAGE_SIZE / 1024),
+				global_page_state(NR_SHMEM) *
+				(long)(PAGE_SIZE / 1024),
+				total_swapcache_pages() *
 				(long)(PAGE_SIZE / 1024),
 			     (long)zcache_pages() * (long)(PAGE_SIZE / 1024),
 			     sc->gfp_mask);

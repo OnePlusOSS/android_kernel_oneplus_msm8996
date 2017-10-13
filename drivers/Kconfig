@@ -196,4 +196,9 @@ source "drivers/firmware/Kconfig"
 
 source "drivers/bif/Kconfig"
 
+source "drivers/nfc/Kconfig"
+source "drivers/param_read_write/Kconfig"
+source "drivers/oneplus/Kconfig"
+
+source "drivers/oem_debug/Kconfig"
 endmenu

@@ -2002,19 +2002,19 @@ static int send_notification(struct rq *rq, int check_pred, int check_groups)
 		if (freq_required < cur_freq + sysctl_sched_pred_alert_freq)
 			return 0;
 	} else {
-		read_lock(&related_thread_group_lock);
+		read_lock_irqsave(&related_thread_group_lock, flags);
 		/*
 		 * Protect from concurrent update of rq->prev_runnable_sum and
 		 * group cpu load
 		 */
-		raw_spin_lock_irqsave(&rq->lock, flags);
+		raw_spin_lock(&rq->lock);
 		if (check_groups)
 			_group_load_in_cpu(cpu_of(rq), &group_load, NULL);
 
 		new_load = rq->prev_runnable_sum + group_load;
 
-		raw_spin_unlock_irqrestore(&rq->lock, flags);
-		read_unlock(&related_thread_group_lock);
+		raw_spin_unlock(&rq->lock);
+		read_unlock_irqrestore(&related_thread_group_lock, flags);
 
 		cur_freq = load_to_freq(rq, rq->old_busy_time);
 		freq_required = load_to_freq(rq, new_load);
@@ -3298,14 +3298,16 @@ void sched_get_cpus_busy(struct sched_load *busy,
 	if (unlikely(cpus == 0))
 		return;
 
+	local_irq_save(flags);
+
+	read_lock(&related_thread_group_lock);
+
 	/*
 	 * This function could be called in timer context, and the
 	 * current task may have been executing for a long time. Ensure
 	 * that the window stats are current by doing an update.
 	 */
-	read_lock(&related_thread_group_lock);
 
-	local_irq_save(flags);
 	for_each_cpu(cpu, query_cpus)
 		raw_spin_lock(&cpu_rq(cpu)->lock);
 
@@ -3388,9 +3390,10 @@ skip_early:
 
 	for_each_cpu(cpu, query_cpus)
 		raw_spin_unlock(&(cpu_rq(cpu))->lock);
-	local_irq_restore(flags);
 
 	read_unlock(&related_thread_group_lock);
+
+	local_irq_restore(flags);
 
 	i = 0;
 	for_each_cpu(cpu, query_cpus) {
@@ -4315,7 +4318,7 @@ static inline int update_preferred_cluster(struct related_thread_group *grp,
 {
 	u32 new_load = task_load(p);
 
-	if (!grp)
+	if (!grp || !p->grp)
 		return 0;
 
 	/*
@@ -7529,12 +7532,21 @@ out_unlock:
 	return retval;
 }
 
-long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
+int affinity_on = 0;
+int affinity_core = 2;
+#define BG_FG_POLICY 0xfffc
+#define TOP_POLICY 0xfffd
+long sched_setaffinity(pid_t pid, struct cpumask *in_mask)
 {
 	cpumask_var_t cpus_allowed, new_mask;
 	struct task_struct *p;
 	int retval;
 
+    int ams_flag = 0;
+    if(pid & 0x80000000){
+        pid = pid & 0x7fffffff;
+        ams_flag = 1;
+    }
 	rcu_read_lock();
 
 	p = find_process_by_pid(pid);
@@ -7542,6 +7554,23 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 		rcu_read_unlock();
 		return -ESRCH;
 	}
+
+    if(ams_flag){
+        if(cpumask_test_cpu(3, in_mask))
+            p->ams_policy = TOP_POLICY;
+        else
+            p->ams_policy = BG_FG_POLICY;
+        if(!affinity_on && !cpumask_test_cpu(3, in_mask)){
+            rcu_read_unlock();
+            return 0;
+        }
+        if(affinity_core > 0 && !cpumask_test_cpu(3, in_mask)){
+            int i;
+            cpumask_clear(in_mask);
+            for(i = 0; i < affinity_core; i++)
+                cpumask_set_cpu(i, in_mask);
+        }
+    }
 
 	/* Prevent p going away */
 	get_task_struct(p);
@@ -7560,6 +7589,9 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 		goto out_free_cpus_allowed;
 	}
 	retval = -EPERM;
+    if(!memcmp(current->comm, "thermal-engine", 12))
+        goto direct_set;
+
 	if (!check_same_owner(p)) {
 		rcu_read_lock();
 		if (!ns_capable(__task_cred(p)->user_ns, CAP_SYS_NICE)) {
@@ -7573,6 +7605,7 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 	if (retval)
 		goto out_free_new_mask;
 
+direct_set:
 	cpuset_cpus_allowed(p, cpus_allowed);
 	cpumask_and(new_mask, in_mask, cpus_allowed);
 
@@ -7616,6 +7649,78 @@ out_put_task:
 	put_task_struct(p);
 	return retval;
 }
+
+
+static LIST_HEAD(affility_list);
+
+void process_affinity(int on)
+{
+    struct task_struct *g, *p;
+    struct cpumask limit_mask;
+    struct cpumask unlimit_mask;
+    const struct cpumask* msk;
+    int i;
+    cpumask_setall(&limit_mask);
+    cpumask_setall(&unlimit_mask);
+    if(affinity_core > 0){
+        cpumask_clear(&limit_mask);
+        for(i = 0; i < affinity_core; i++)
+            cpumask_set_cpu(i, &limit_mask);
+    }
+    if(on){
+        msk = &limit_mask;
+    	read_lock(&tasklist_lock);
+    	do_each_thread(g, p) {
+    		if(p->ams_policy == BG_FG_POLICY)
+                //sched_setaffinity(p->pid, &limit_mask);
+                list_add(&p->affinity_node, &affility_list);
+    	}  while_each_thread(g, p);
+    	read_unlock(&tasklist_lock);
+        while(!list_empty(&affility_list)){
+            p = list_first_entry(&affility_list, struct task_struct, affinity_node);
+            list_del_init(&p->affinity_node);
+            sched_setaffinity(p->pid, &limit_mask);
+        }
+    }
+    else{
+        msk = &unlimit_mask;
+        read_lock(&tasklist_lock);
+	    do_each_thread(g, p) {
+		    if(p->ams_policy == BG_FG_POLICY)
+                //sched_setaffinity(p->pid, &unlimit_mask);
+                list_add(&p->affinity_node, &affility_list);
+	    }  while_each_thread(g, p);
+	    read_unlock(&tasklist_lock);
+        while(!list_empty(&affility_list)){
+            p = list_first_entry(&affility_list, struct task_struct, affinity_node);
+            list_del_init(&p->affinity_node);
+            sched_setaffinity(p->pid, &unlimit_mask);
+        }
+    }
+    BUG_ON(!list_empty(&affility_list));
+}
+
+int affinity_switch_handler(struct ctl_table *table, int write,
+            void __user *buffer, size_t *lenp,
+            loff_t *ppos)
+{
+    int *buf = buffer;
+    affinity_on = buf[0];
+    process_affinity(affinity_on);
+    return 0;
+}
+
+int affinity_core_handler(struct ctl_table *table, int write,
+            void __user *buffer, size_t *lenp,
+            loff_t *ppos)
+{
+    int *buf = buffer;
+    affinity_core = buf[0];
+    if(affinity_on)
+        process_affinity(affinity_on);
+    return 0;
+}
+
 
 static int get_user_cpu_mask(unsigned long __user *user_mask_ptr, unsigned len,
 			     struct cpumask *new_mask)

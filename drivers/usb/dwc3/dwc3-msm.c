@@ -2490,6 +2490,8 @@ static int dwc3_msm_power_get_property_usb(struct power_supply *psy,
 								usb_psy);
 	switch (psp) {
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		if (mdwc->vbus_active && !mdwc->voltage_max)
+			mdwc->voltage_max = 5000000; /* default value */
 		val->intval = mdwc->voltage_max;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
@@ -2622,6 +2624,9 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 		case POWER_SUPPLY_TYPE_USB_DCP:
 			mdwc->chg_type = DWC3_DCP_CHARGER;
 			break;
+		case POWER_SUPPLY_TYPE_DASH:
+			mdwc->chg_type = DWC3_DCP_CHARGER;
+			break;
 		case POWER_SUPPLY_TYPE_USB_HVDCP:
 			mdwc->chg_type = DWC3_DCP_CHARGER;
 			dwc3_msm_gadget_vbus_draw(mdwc, hvdcp_max_current);
@@ -2676,6 +2681,7 @@ dwc3_msm_property_is_writeable(struct power_supply *psy,
 static char *dwc3_msm_pm_power_supplied_to[] = {
 	"battery",
 	"bms",
+	"bcl",
 };
 
 static enum power_supply_property dwc3_msm_pm_power_props_usb[] = {

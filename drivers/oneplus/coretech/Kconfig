@@ -1,0 +1,1 @@
+source "drivers/oneplus/coretech/defrag/Kconfig"

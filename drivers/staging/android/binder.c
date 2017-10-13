@@ -70,6 +70,7 @@
 #include <linux/uaccess.h>
 #include <linux/pid_namespace.h>
 #include <linux/security.h>
+#include <linux/proc_fs.h>
 #include <linux/spinlock.h>
 
 #include "binder.h"
@@ -2478,7 +2479,6 @@ static int binder_translate_handle(struct flat_binder_object *fp,
 			     (u64)node->ptr);
 		binder_node_unlock(node);
 	} else {
-		int ret;
 		struct binder_ref_data dest_rdata;
 
 		binder_node_unlock(node);
@@ -3250,6 +3250,7 @@ static void binder_transaction(struct binder_proc *proc,
 err_dead_proc_or_thread:
 	return_error = BR_DEAD_REPLY;
 	return_error_line = __LINE__;
+	binder_dequeue_work(proc, tcomplete);
 err_translate_failed:
 err_bad_object_type:
 err_bad_offset:
@@ -5600,6 +5601,51 @@ BINDER_DEBUG_ENTRY(stats);
 BINDER_DEBUG_ENTRY(transactions);
 BINDER_DEBUG_ENTRY(transaction_log);
 
+static int proc_state_open(struct inode *inode, struct file *file)
+{
+      return single_open(file, binder_state_show, NULL);
+}
+
+static int proc_transactions_open(struct inode *inode, struct file *file)
+{
+      return single_open(file, binder_transactions_show, NULL);
+}
+
+static int proc_transaction_log_open(struct inode *inode, struct file *file)
+{
+      return single_open(file, binder_transaction_log_show, &binder_transaction_log);
+}
+
+
+static const struct file_operations proc_state_operations = {
+      .open       = proc_state_open,
+      .read       = seq_read,
+      .llseek     = seq_lseek,
+      .release    = single_release,
+};
+
+static const struct file_operations proc_transactions_operations = {
+      .open       = proc_transactions_open,
+      .read       = seq_read,
+      .llseek     = seq_lseek,
+      .release    = single_release,
+};
+
+static const struct file_operations proc_transaction_log_operations = {
+      .open       = proc_transaction_log_open,
+      .read       = seq_read,
+      .llseek     = seq_lseek,
+      .release    = single_release,
+};
+
+static int binder_proc_init(void)
+{
+      proc_create("proc_state", 0, NULL, &proc_state_operations);
+      proc_create("proc_transactions", 0, NULL, &proc_transactions_operations);
+      proc_create("proc_transaction_log", 0, NULL, &proc_transaction_log_operations);
+      return 0;
+}
+
 static int __init init_binder_device(const char *name)
 {
 	int ret;
@@ -5673,6 +5719,8 @@ static int __init binder_init(void)
 				    &binder_transaction_log_failed,
 				    &binder_transaction_log_fops);
 	}
+
+    binder_proc_init();
 
 	/*
 	 * Copy the module_parameter string, because we don't want to
