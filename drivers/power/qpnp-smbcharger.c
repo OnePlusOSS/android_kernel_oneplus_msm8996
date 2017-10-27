@@ -211,6 +211,7 @@ struct smbchg_chip {
 	bool				wipower_dyn_icl_avail;
 	struct ilim_entry		current_ilim;
 	struct mutex			wipower_config;
+	struct mutex		        sw_dash_lock;
 	bool				wipower_configured;
 	struct qpnp_adc_tm_btm_param	param;
 
@@ -236,6 +237,8 @@ struct smbchg_chip {
 	bool				usb_enum_status;
 	bool				non_std_chg_present;
 	bool				redect_charger_type_done;
+	bool				boot_usb_present;
+	bool				re_trigr_dash_done;
 	int				otg_retries;
 	ktime_t				otg_enable_time;
 	bool				aicl_deglitch_short;
@@ -383,6 +386,7 @@ struct smbchg_chip {
 	unsigned int			vbatmax[TEMP_REGION_MAX];
 	unsigned int			vbatdet[TEMP_REGION_MAX];
 	unsigned int			record_chg_type_count;
+	unsigned int			ck_dash_count;
 #if defined(CONFIG_FB)
 	struct notifier_block		fb_notif;
 #endif /* CONFIG_FB */
@@ -391,6 +395,7 @@ struct smbchg_chip {
 	struct delayed_work 		re_det_work;
 	struct delayed_work 		check_switch_dash_work;
 	struct delayed_work 		non_standard_charger_check_work;
+	struct delayed_work 		rechk_sw_dsh_work;
 	struct votable			*hw_aicl_rerun_disable_votable;
 	struct votable			*hw_aicl_rerun_enable_indirect_votable;
 	struct votable			*aicl_deglitch_short_votable;
@@ -1302,7 +1307,11 @@ static int get_prop_batt_voltage_max_design(struct smbchg_chip *chip)
 #define DEFAULT_BATT_CHARGE_COUNT	0
 static int get_prop_batt_charge_count(struct smbchg_chip *chip)
 {
-	int count, rc;
+	static int count;
+	int rc;
+
+	if (count > 0 && !chip->usb_present)
+		return count;
 
 	rc = get_property_from_fg(chip, POWER_SUPPLY_PROP_CHARGE_COUNTER, &count);
 	if (rc) {
@@ -1310,6 +1319,18 @@ static int get_prop_batt_charge_count(struct smbchg_chip *chip)
 		count = DEFAULT_BATT_CHARGE_COUNT;
 	}
 	return count;
+}
+int get_prop_fast_adapter_update(struct smbchg_chip *chg)
+{
+	int update_status;
+
+	if (fast_charger && fast_charger->get_adapter_update)
+		update_status = fast_charger->get_adapter_update();
+	else {
+		pr_err("no fast_charger register found\n");
+		update_status = ADAPTER_FW_UPDATE_NONE;
+	}
+	return update_status;
 }
 
 static int get_prop_batt_health(struct smbchg_chip *chip)
@@ -4341,6 +4362,10 @@ static int get_prop_charger_voltage_now(struct smbchg_chip *chip)
 
 static bool get_prop_fast_chg_started(struct smbchg_chip *chip)
 {
+	if(get_prop_fast_adapter_update(chip)
+		== ADAPTER_FW_NEED_UPDATE)
+	return true;
+
 	if (fast_charger && fast_charger->fast_chg_started) {
 		return fast_charger->fast_chg_started();
 	} else {
@@ -4439,31 +4464,75 @@ static bool qpnp_set_fast_chg_allow(struct smbchg_chip *chip, bool enable)
 		return false;
 	}
 }
+#define TIME_200MS 200
+#define TIME_3S 3000
+#define DASH_CHECK_COUNT 4
 
 static bool usb_switched = false;
-static void switch_fast_chg(struct smbchg_chip *chip)
+static void set_usb_switch(struct smbchg_chip *chg, bool enable)
+{
+	int retrger_time;
+	if (!fast_charger) {
+		pr_err("no fast_charger register found\n");
+		return;
+	}
+
+	if (enable) {
+		pr_err("switch on fastchg\n");
+		if (chg->boot_usb_present && chg->re_trigr_dash_done) {
+			vote(chg->usb_icl_votable, USER_ICL_VOTER,
+					true, 0);
+			usleep_range(500000, 510000);
+			vote(chg->usb_icl_votable, USER_ICL_VOTER,
+					true, CURRENT_1500_MA*1000);
+		}
+		set_mcu_en_gpio_value(1);
+		msleep(10);
+		usb_sw_gpio_set(1);
+		msleep(10);
+		mcu_en_gpio_set(0);
+		if (chg->boot_usb_present)
+			retrger_time = TIME_3S;
+		else
+			retrger_time = TIME_200MS;
+		if (!chg->re_trigr_dash_done)
+			schedule_delayed_work(&chg->rechk_sw_dsh_work,
+					msecs_to_jiffies(retrger_time));
+	} else {
+		pr_err("switch off fastchg\n");
+		usb_sw_gpio_set(0);
+		mcu_en_gpio_set(1);
+	}
+}
+
+static void switch_fast_chg(struct smbchg_chip *chg)
 {
 	bool fastchg_allowed, is_allowed;
+	static bool pre_is_allowed;
 
-	if (gpio_get_value(135)) /* usb-sw-gpio */
+	chg->dash_on = get_prop_fastchg_status(chg);
+	mutex_lock(&chg->sw_dash_lock);
+	if (gpio_get_value(135) && chg->dash_on) {
+		mutex_unlock(&chg->sw_dash_lock);
 		return;
-	if (!is_usb_present(chip))
+	}
+	if (!is_usb_present(chg)) {
+		mutex_unlock(&chg->sw_dash_lock);
 		return;
-
-	fastchg_allowed = qpnp_get_fast_chg_allow(chip);
+	}
+	fastchg_allowed = qpnp_get_fast_chg_allow(chg);
 	if (!fastchg_allowed) {
-		is_allowed = is_fastchg_allowed(chip);
+		is_allowed = is_fastchg_allowed(chg);
+	if (pre_is_allowed != is_allowed) {
+		pre_is_allowed = is_allowed;
+		pr_info("is_allowed = %d\n", is_allowed);
+	}
 		if (is_allowed) {
-			/* swtich on fast chg */
-			set_mcu_en_gpio_value(1);
-			msleep(10);
-			usb_sw_gpio_set(1);
-			msleep(10);
-			mcu_en_gpio_set(0);
-			usb_switched = true;
-			qpnp_set_fast_chg_allow(chip, true);
+			set_usb_switch(chg, true);
+			qpnp_set_fast_chg_allow(chg, true);
 		}
 	}
+	mutex_unlock(&chg->sw_dash_lock);
 }
 
 static bool qpnp_get_fast_chg_ing(struct smbchg_chip *chip)
@@ -5453,6 +5522,7 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 		chip->recharge_status = false;
 		chip->usb_enum_status = false;
 		chip->non_std_chg_present = false;
+		chip->boot_usb_present = true;
 		qpnp_battery_temp_region_set(chip, BATT_TEMP_INVALID);
 		wake_unlock(&chip->chg_wake_lock);
 		cancel_delayed_work(&chip->non_standard_charger_check_work);
@@ -6671,7 +6741,7 @@ static void smbchg_external_power_changed(struct power_supply *psy)
 				struct smbchg_chip, batt_psy);
 	union power_supply_propval prop = {0,};
 	int rc, current_limit = 0, soc;
-static int pre_current_limit = 0;
+	static int pre_current_limit;
 
 	if (chip->bms_psy_name)
 		chip->bms_psy =
@@ -6703,26 +6773,26 @@ static int pre_current_limit = 0;
 	if (rc == 0)
 		current_limit = prop.intval / 1000;
 
-		if (prop.intval <= 2 && get_prop_batt_present(chip)) {
-			/* charger removed, set pre_current_limit 0 */
-			pre_current_limit = 0;
-			chip->chg_ovp = false;
-			chip->aicl_current = 0;
-		}
-	
-		if (current_limit && current_limit != pre_current_limit) {
-			/* check battery temp if current_limit is changed */
-			chip->is_power_changed = true;
-			qpnp_check_battery_temp(chip);
-			/* use oem temp control logic */
-			pr_info("change usb_target_current_ma = %d\n",
-					current_limit);
-			rc = vote(chip->usb_icl_votable, PSY_ICL_VOTER, true,
-					current_limit);
-			if (rc < 0)
-				pr_err("Couldn't update USB PSY ICL vote rc=%d\n", rc);
-			pre_current_limit = current_limit;
-		}
+	if (prop.intval <= 2 && get_prop_batt_present(chip)) {
+		/* charger removed, set pre_current_limit 0 */
+		pre_current_limit = 0;
+		chip->chg_ovp = false;
+		chip->aicl_current = 0;
+	}
+
+	if (current_limit && current_limit != pre_current_limit) {
+		/* check battery temp if current_limit is changed */
+		chip->is_power_changed = true;
+		qpnp_check_battery_temp(chip);
+		/* use oem temp control logic */
+		pr_info("change usb_target_current_ma = %d\n",
+				current_limit);
+		rc = vote(chip->usb_icl_votable, PSY_ICL_VOTER, true,
+				current_limit);
+		if (rc < 0)
+			pr_err("Couldn't update USB PSY ICL vote rc=%d\n", rc);
+		pre_current_limit = current_limit;
+	}
 	smbchg_vfloat_adjust_check(chip);
 
 	power_supply_changed(&chip->batt_psy);
@@ -7130,7 +7200,7 @@ static irqreturn_t batt_hot_handler(int irq, void *_chip)
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_hot = !!(reg & HOT_BAT_HARD_BIT);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_err("triggered: 0x%02x\n", reg);
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -7148,7 +7218,7 @@ static irqreturn_t batt_cold_handler(int irq, void *_chip)
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_cold = !!(reg & COLD_BAT_HARD_BIT);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_err("triggered: 0x%02x\n", reg);
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -7166,7 +7236,7 @@ static irqreturn_t batt_warm_handler(int irq, void *_chip)
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_warm = !!(reg & HOT_BAT_SOFT_BIT);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_err("triggered: 0x%02x\n", reg);
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -7182,7 +7252,7 @@ static irqreturn_t batt_cool_handler(int irq, void *_chip)
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_cool = !!(reg & COLD_BAT_SOFT_BIT);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_err("triggered: 0x%02x\n", reg);
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -7198,7 +7268,7 @@ static irqreturn_t batt_pres_handler(int irq, void *_chip)
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_present = !(reg & BAT_MISSING_BIT);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_err("triggered: 0x%02x\n", reg);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
 	smbchg_charging_status_change(chip);
@@ -7220,13 +7290,13 @@ static irqreturn_t chg_error_handler(int irq, void *_chip)
 	int rc = 0;
 	u8 reg;
 
-	pr_smb(PR_INTERRUPT, "chg-error triggered\n");
+	pr_err("chg-error triggered\n");
 
 	rc = smbchg_read(chip, &reg, chip->chgr_base + RT_STS, 1);
 	if (rc < 0) {
 		dev_err(chip->dev, "Unable to read RT_STS rc = %d\n", rc);
 	} else {
-		pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+		pr_err("triggered: 0x%02x\n", reg);
 		if (reg & CHG_COMP_SFT_BIT)
 			set_property_on_fg(chip,
 					POWER_SUPPLY_PROP_SAFETY_TIMER_EXPIRED,
@@ -7245,7 +7315,7 @@ static irqreturn_t fastchg_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;
 
-	pr_smb(PR_INTERRUPT, "p2f triggered\n");
+	pr_info("p2f triggered\n");
 
 	if (is_usb_present(chip) || is_dc_present(chip)) {
 		smbchg_detect_parallel_charger(chip);
@@ -7278,7 +7348,7 @@ static irqreturn_t chg_term_handler(int irq, void *_chip)
 		dev_err(chip->dev, "Error reading RT_STS rc= %d\n", rc);
 	} else {
 		terminated = !!(reg & BAT_TCC_REACHED_BIT);
-		pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+		pr_err("triggered: 0x%02x\n", reg);
 	}
 	/*
 	 * If charging has not actually terminated, then this means that
@@ -7315,7 +7385,7 @@ static irqreturn_t taper_handler(int irq, void *_chip)
 
 	taper_irq_en(chip, false);
 	smbchg_read(chip, &reg, chip->chgr_base + RT_STS, 1);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_err("triggered: 0x%02x\n", reg);
 	smbchg_parallel_usb_taper(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -7330,7 +7400,7 @@ static irqreturn_t recharge_handler(int irq, void *_chip)
 	u8 reg = 0;
 
 	smbchg_read(chip, &reg, chip->chgr_base + RT_STS, 1);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_info("triggered: 0x%02x\n", reg);
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -7377,7 +7447,7 @@ static irqreturn_t dcin_uv_handler(int irq, void *_chip)
 	struct smbchg_chip *chip = _chip;
 	bool dc_present = is_dc_present(chip);
 
-	pr_smb(PR_STATUS, "chip->dc_present = %d dc_present = %d\n",
+	pr_info("chip->dc_present = %d dc_present = %d\n",
 			chip->dc_present, dc_present);
 
 	if (chip->dc_present != dc_present) {
@@ -7666,8 +7736,10 @@ static irqreturn_t aicl_done_handler(int irq, void *_chip)
 	if (usb_present && !chip->parallel.use_parallel_aicl)
 		smbchg_parallel_usb_check_ok(chip);
 
-	if (chip->aicl_complete)
+	if (chip->aicl_complete) {
+		pr_info("aicl_complete, aicl: %dmA\n", aicl_level);
 		power_supply_changed(&chip->batt_psy);
+	}
 
 	return IRQ_HANDLED;
 }
@@ -9671,6 +9743,34 @@ static void check_allow_switch_dash(struct work_struct *work)
 		switch_fast_chg(chip);
 	}
 }
+static void retrigger_dash_work(struct work_struct *work)
+{
+	struct smbchg_chip *chg = container_of(work,
+			struct smbchg_chip,
+			rechk_sw_dsh_work.work);
+	pr_debug("chg->ck_dash_count=%d\n", chg->ck_dash_count);
+	if (chg->usb_enum_status)
+		return;
+	if (chg->dash_present) {
+		chg->ck_dash_count = 0;
+		return;
+	}
+	if (!is_usb_present(chg) ) {
+		chg->ck_dash_count = 0;
+		return;
+	}
+	if (chg->ck_dash_count >= DASH_CHECK_COUNT) {
+		pr_info("retrger dash\n");
+		chg->re_trigr_dash_done = true;
+		set_usb_switch(chg, false);
+		set_usb_switch(chg, true);
+		chg->ck_dash_count = 0;
+	} else {
+		chg->ck_dash_count++;
+		schedule_delayed_work(&chg->rechk_sw_dsh_work,
+				msecs_to_jiffies(TIME_200MS));
+	}
+}
 
 static void check_non_standard_charger_work(struct work_struct *work)
 {
@@ -10304,6 +10404,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 	INIT_DELAYED_WORK(&chip->check_switch_dash_work, check_allow_switch_dash);
 	INIT_DELAYED_WORK(&chip->non_standard_charger_check_work,
 			check_non_standard_charger_work);
+	INIT_DELAYED_WORK(&chip->rechk_sw_dsh_work, retrigger_dash_work);
 	init_completion(&chip->src_det_lowered);
 	init_completion(&chip->src_det_raised);
 	init_completion(&chip->usbin_uv_lowered);
@@ -10328,6 +10429,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 	mutex_init(&chip->wipower_config);
 	mutex_init(&chip->usb_status_lock);
 	device_init_wakeup(chip->dev, true);
+	mutex_init(&chip->sw_dash_lock);
 	wake_lock_init(&chip->chg_wake_lock,
 			WAKE_LOCK_SUSPEND, "chg_wake_lock");
 

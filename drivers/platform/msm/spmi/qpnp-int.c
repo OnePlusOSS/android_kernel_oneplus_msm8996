@@ -665,7 +665,6 @@ static int __qpnpint_handle_irq(struct spmi_controller *spmi_ctrl,
 
 	domain = chip_lookup[busno]->domain;
 	irq = irq_find_mapping(domain, hwirq);
-	set_qpnp_kpdpwr_resume_wakeup_flag(irq);
 
 	if (show) {
 		struct irq_desc *desc;
@@ -681,7 +680,10 @@ static int __qpnpint_handle_irq(struct spmi_controller *spmi_ctrl,
 		pr_warn("%d triggered [0x%01x, 0x%02x,0x%01x] %s\n",
 				irq, spec->slave, spec->per, spec->irq, name);
 		if (strstr(name, "qpnp_kpdpwr_status") != NULL)
+		{
+			set_qpnp_kpdpwr_resume_wakeup_flag(irq);
 			sched_set_boost(1);
+		}
 	} else {
 		generic_handle_irq(irq);
 	}

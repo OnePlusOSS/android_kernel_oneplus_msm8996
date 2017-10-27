@@ -1385,8 +1385,6 @@ static void fg_enable_irqs(struct fg_chip *chip, bool enable)
 		return;
 
 	if (enable) {
-		enable_irq(chip->soc_irq[DELTA_SOC].irq);
-		enable_irq_wake(chip->soc_irq[DELTA_SOC].irq);
 		enable_irq(chip->batt_irq[BATT_MISSING].irq);
 		if (!chip->vbat_low_irq_enabled) {
 			enable_irq(chip->batt_irq[VBATT_LOW].irq);
@@ -1399,13 +1397,6 @@ static void fg_enable_irqs(struct fg_chip *chip, bool enable)
 		}
 		chip->irqs_enabled = true;
 	} else {
-		disable_irq_wake(chip->soc_irq[DELTA_SOC].irq);
-		disable_irq_nosync(chip->soc_irq[DELTA_SOC].irq);
-		if (chip->full_soc_irq_enabled) {
-			disable_irq_wake(chip->soc_irq[FULL_SOC].irq);
-			disable_irq_nosync(chip->soc_irq[FULL_SOC].irq);
-			chip->full_soc_irq_enabled = false;
-		}
 		disable_irq(chip->batt_irq[BATT_MISSING].irq);
 		if (chip->vbat_low_irq_enabled) {
 			disable_irq_wake(chip->batt_irq[VBATT_LOW].irq);
@@ -5320,8 +5311,7 @@ static irqreturn_t fg_vbatt_low_handler(int irq, void *_chip)
 	struct fg_chip *chip = _chip;
 	bool vbatt_low_sts;
 
-	if (fg_debug_mask & FG_IRQS)
-		pr_info("vbatt-low triggered\n");
+	pr_info("vbatt-low triggered\n");
 
 	/* handle empty soc based on vbatt-low interrupt */
 	if (chip->use_vbat_low_empty_soc) {
@@ -5385,9 +5375,8 @@ static irqreturn_t fg_batt_missing_irq_handler(int irq, void *_chip)
 			chip->battery_missing = false;
 	}
 
-	if (fg_debug_mask & FG_IRQS)
-		pr_info("batt-missing triggered: %s\n",
-				batt_missing ? "missing" : "present");
+	pr_info("batt-missing triggered: %s\n",
+			batt_missing ? "missing" : "present");
 
 	if (chip->power_supply_registered)
 		power_supply_changed(&chip->bms_psy);
@@ -5426,89 +5415,6 @@ static irqreturn_t fg_mem_avail_irq_handler(int irq, void *_chip)
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t fg_soc_irq_handler(int irq, void *_chip)
-{
-	struct fg_chip *chip = _chip;
-	u8 soc_rt_sts;
-	int rc, msoc;
-
-	rc = fg_read(chip, &soc_rt_sts, INT_RT_STS(chip->soc_base), 1);
-	if (rc) {
-		pr_err("spmi read failed: addr=%03X, rc=%d\n",
-				INT_RT_STS(chip->soc_base), rc);
-	}
-
-	if (fg_debug_mask & FG_IRQS)
-		pr_info("triggered 0x%x\n", soc_rt_sts);
-
-	if (chip->dischg_gain.enable) {
-		fg_stay_awake(&chip->dischg_gain_wakeup_source);
-		schedule_work(&chip->dischg_gain_work);
-	}
-
-	if (chip->soc_slope_limiter_en) {
-		fg_stay_awake(&chip->slope_limit_wakeup_source);
-		schedule_work(&chip->slope_limiter_work);
-	}
-
-	/* Backup last soc every delta soc interrupt */
-	chip->use_last_soc = false;
-	if (fg_reset_on_lockup) {
-		if (!chip->ima_error_handling)
-			chip->last_soc = get_monotonic_soc_raw(chip);
-		if (fg_debug_mask & FG_STATUS)
-			pr_info("last_soc: %d\n", chip->last_soc);
-
-		fg_stay_awake(&chip->cc_soc_wakeup_source);
-		schedule_work(&chip->cc_soc_store_work);
-	}
-
-	if (chip->use_vbat_low_empty_soc) {
-		msoc = get_monotonic_soc_raw(chip);
-		if (msoc == 0 || chip->soc_empty) {
-			fg_stay_awake(&chip->empty_check_wakeup_source);
-			schedule_delayed_work(&chip->check_empty_work,
-				msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
-		}
-	}
-
-	schedule_work(&chip->battery_age_work);
-
-	if (chip->power_supply_registered)
-		power_supply_changed(&chip->bms_psy);
-
-	if (chip->rslow_comp.chg_rs_to_rslow > 0 &&
-			chip->rslow_comp.chg_rslow_comp_c1 > 0 &&
-			chip->rslow_comp.chg_rslow_comp_c2 > 0)
-		schedule_work(&chip->rslow_comp_work);
-
-	if (chip->cyc_ctr.en)
-		schedule_work(&chip->cycle_count_work);
-
-	schedule_work(&chip->update_esr_work);
-
-	if (chip->charge_full)
-		schedule_work(&chip->charge_full_work);
-
-	if (chip->wa_flag & IADC_GAIN_COMP_WA
-			&& chip->iadc_comp_data.gain_active) {
-		fg_stay_awake(&chip->gain_comp_wakeup_source);
-		schedule_work(&chip->gain_comp_work);
-	}
-
-	if (chip->wa_flag & USE_CC_SOC_REG
-			&& chip->learning_data.active) {
-		fg_stay_awake(&chip->capacity_learning_wakeup_source);
-		schedule_work(&chip->fg_cap_learning_work);
-	}
-
-	if (chip->esr_pulse_tune_en) {
-		fg_stay_awake(&chip->esr_extract_wakeup_source);
-		schedule_work(&chip->esr_extract_config_work);
-	}
-
-	return IRQ_HANDLED;
-}
 
 static irqreturn_t fg_empty_soc_irq_handler(int irq, void *_chip)
 {
@@ -5541,8 +5447,7 @@ static irqreturn_t fg_first_soc_irq_handler(int irq, void *_chip)
 {
 	struct fg_chip *chip = _chip;
 
-	if (fg_debug_mask & FG_IRQS)
-		pr_info("triggered\n");
+	pr_info("triggered\n");
 
 	if (fg_est_dump)
 		schedule_work(&chip->dump_sram);
@@ -6786,9 +6691,8 @@ static void check_empty_work(struct work_struct *work)
 
 		msoc = get_monotonic_soc_raw(chip);
 
-		if (fg_debug_mask & FG_STATUS)
-			pr_info("Vbatt_low: %d, msoc: %d\n", vbatt_low_sts,
-				msoc);
+		pr_info("Vbatt_low: %d, msoc: %d\n", vbatt_low_sts,
+			msoc);
 		if (vbatt_low_sts || (msoc == 0))
 			chip->soc_empty = true;
 		else
@@ -6803,8 +6707,7 @@ static void check_empty_work(struct work_struct *work)
 			chip->vbat_low_irq_enabled = true;
 		}
 	} else if (fg_is_batt_empty(chip)) {
-		if (fg_debug_mask & FG_STATUS)
-			pr_info("EMPTY SOC high\n");
+		pr_info("EMPTY SOC high\n");
 		chip->soc_empty = true;
 		if (chip->power_supply_registered)
 			power_supply_changed(&chip->bms_psy);
@@ -7415,12 +7318,6 @@ static int fg_init_irqs(struct fg_chip *chip)
 				pr_err("Unable to get empty-soc irq\n");
 				return rc;
 			}
-			chip->soc_irq[DELTA_SOC].irq = spmi_get_irq_byname(
-					chip->spmi, spmi_resource, "delta-soc");
-			if (chip->soc_irq[DELTA_SOC].irq < 0) {
-				pr_err("Unable to get delta-soc irq\n");
-				return rc;
-			}
 			chip->soc_irq[FIRST_EST_DONE].irq = spmi_get_irq_byname(
 				chip->spmi, spmi_resource, "first-est-done");
 			if (chip->soc_irq[FIRST_EST_DONE].irq < 0) {
@@ -7445,15 +7342,6 @@ static int fg_init_irqs(struct fg_chip *chip)
 			}
 
 			rc = devm_request_irq(chip->dev,
-				chip->soc_irq[DELTA_SOC].irq,
-				fg_soc_irq_handler, IRQF_TRIGGER_RISING,
-				"delta-soc", chip);
-			if (rc < 0) {
-				pr_err("Can't request %d delta-soc: %d\n",
-					chip->soc_irq[DELTA_SOC].irq, rc);
-				return rc;
-			}
-			rc = devm_request_irq(chip->dev,
 				chip->soc_irq[FIRST_EST_DONE].irq,
 				fg_first_soc_irq_handler, IRQF_TRIGGER_RISING,
 				"first-est-done", chip);
@@ -7463,7 +7351,6 @@ static int fg_init_irqs(struct fg_chip *chip)
 				return rc;
 			}
 
-			enable_irq_wake(chip->soc_irq[DELTA_SOC].irq);
 			if (!chip->use_vbat_low_empty_soc)
 				enable_irq_wake(chip->soc_irq[EMPTY_SOC].irq);
 			break;

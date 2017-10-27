@@ -454,9 +454,22 @@
 		microchip,ap-clk = <&tlmm 75 0x00>;
 		microchip,ap-data = <&tlmm 74 0x00>;
 
-		pinctrl-names = "mux_fastchg_active", "mux_fastchg_suspend";
-		pinctrl-0 = <&fastchg_active &usb_sw_active &ap_clk_active &ap_data_active>;
-		pinctrl-1 = <&usb_sw_suspend &fastchg_suspend &ap_clk_suspend &ap_data_suspend>;
+		pinctrl-names = "mux_fastchg_active",
+		"mux_fastchg_suspend",
+		"mcu_data_active",
+		"mcu_data_suspend";
+		pinctrl-0 = <&fastchg_active
+		&usb_sw_active
+		&ap_clk_active >;
+		pinctrl-1 = <&usb_sw_suspend
+		&fastchg_suspend
+		&ap_clk_suspend>;
+		pinctrl-2 =<&ap_data_active>;
+		pinctrl-3 =<&ap_data_suspend>;
+		clocks = <&clock_gcc clk_uart_snoc_msmbus_a_clk>,
+			 <&clock_gcc clk_uart_cnoc_msmbus_a_clk>;
+		clock-names = "snoc", "cnoc";
+
 	};
 };
 

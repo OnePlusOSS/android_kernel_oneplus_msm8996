@@ -499,7 +499,7 @@ static int _disp_tz_interrupt_stats(void)
 
 	for (i = 0; i < (*num_int); i++) {
 		tzdbg_ptr = (struct tzdbg_int_t *)ptr;
-		len += snprintf(tzdbg.disp_buf + len,
+		len += scnprintf(tzdbg.disp_buf + len,
 				(debug_rw_buf_size - 1) - len,
 				"     Interrupt Number          : 0x%x\n"
 				"     Type of Interrupt         : 0x%x\n"
@@ -508,13 +508,13 @@ static int _disp_tz_interrupt_stats(void)
 				(uint32_t)tzdbg_ptr->int_info,
 				(uint8_t *)tzdbg_ptr->int_desc);
 		for (j = 0; j < tzdbg.diag_buf->cpu_count; j++) {
-			len += snprintf(tzdbg.disp_buf + len,
+			len += scnprintf(tzdbg.disp_buf + len,
 				(debug_rw_buf_size - 1) - len,
 				"     int_count on CPU # %d      : %u\n",
 				(uint32_t)j,
 				(uint32_t)tzdbg_ptr->int_count[j]);
 		}
-		len += snprintf(tzdbg.disp_buf + len, debug_rw_buf_size - 1,
+		len += scnprintf(tzdbg.disp_buf + len, debug_rw_buf_size - 1 - len,
 									"\n");
 
 		if (len > (debug_rw_buf_size - 1)) {

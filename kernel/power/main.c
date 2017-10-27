@@ -22,6 +22,8 @@
 
 DEFINE_MUTEX(pm_mutex);
 
+#define LITTLE_CLUSTER_CPU_NUMBER 0
+#define BIG_CLUSTER_CPU_NUMBER 2
 #define RESUME_BOOST_LITTLE_CPU_QOS_FREQ 1593600
 #define RESUME_BOOST_BIG_CPU_QOS_FREQ    2073600
 
@@ -406,19 +408,19 @@ void resumeboost_fn(void)
 
 	if(get_resume_wakeup_flag() || get_qpnp_kpdpwr_resume_wakeup_flag()) {
 		/* Fetch little cpu policy and drive the CPU towards target frequency */
-                policy = cpufreq_cpu_get(0);
+                policy = cpufreq_cpu_get(LITTLE_CLUSTER_CPU_NUMBER);
                 if (policy)  {
                         cpufreq_driver_target(policy, RESUME_BOOST_LITTLE_CPU_QOS_FREQ, CPUFREQ_RELATION_H);
-                        pm_qos_update_request_timeout(&resumeboost_little_cpu_qos, RESUME_BOOST_LITTLE_CPU_QOS_FREQ, 1000000);
+                        pm_qos_update_request_timeout(&resumeboost_little_cpu_qos, MAX_CPUFREQ-1, 1000000);
                 } else
 			return;
                 cpufreq_cpu_put(policy);
 
 		/* Fetch big cpu policy and drive big cpu towards target frequency */
-		policy = cpufreq_cpu_get(2);
+		policy = cpufreq_cpu_get(BIG_CLUSTER_CPU_NUMBER);
 		if (policy)  {
 			cpufreq_driver_target(policy, RESUME_BOOST_BIG_CPU_QOS_FREQ, CPUFREQ_RELATION_H);
-			pm_qos_update_request_timeout(&resumeboost_big_cpu_qos, RESUME_BOOST_BIG_CPU_QOS_FREQ, 1000000);
+			pm_qos_update_request_timeout(&resumeboost_big_cpu_qos, MAX_CPUFREQ-4, 1000000);
 		} else
 			return;
 		cpufreq_cpu_put(policy);
