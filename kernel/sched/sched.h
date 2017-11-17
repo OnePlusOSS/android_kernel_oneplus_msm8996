@@ -344,6 +344,8 @@ struct hmp_sched_stats {
 };
 
 struct sched_cluster {
+    raw_spinlock_t governor_lock;
+    int governor_policy;
 	struct list_head list;
 	struct cpumask cpus;
 	int id;
@@ -365,6 +367,10 @@ struct sched_cluster {
 	int dstate, dstate_wakeup_latency, dstate_wakeup_energy;
 	unsigned int static_cluster_pwr_cost;
 };
+#define UX_GOVERNOR 0
+#define UX_GROUP_GOVERNOR 1
+#define NEGATIVE_GOVERNOR 2
+
 
 extern unsigned long all_cluster_ids[];
 

@@ -5086,6 +5086,16 @@ core_initcall(cgroup_wq_init);
  *  - Print task's cgroup paths into seq_file, one line for each hierarchy
  *  - Used for /proc/<pid>/cgroup.
  */
+char * cgroup_get_cpuctl_path(struct task_struct *tsk, char *buf)
+{
+    struct cgroup *cgrp;
+    char *path;
+
+    cgrp = task_cgroup(tsk, cpu_cgrp_id);
+    path = cgroup_path(cgrp, buf, PATH_MAX);
+    return path;
+}
+
 int proc_cgroup_show(struct seq_file *m, struct pid_namespace *ns,
 		     struct pid *pid, struct task_struct *tsk)
 {

@@ -34,6 +34,10 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/cpufreq_interactive.h>
+#include "../kernel/sched/sched.h"
+#include <../drivers/oneplus/coretech/opchain/opchain_helper.h>
+
+#define opc_claim_bit_test(claim, cpu) (claim & ((1 << cpu) | (1 << (cpu + num_present_cpus()))))
 
 struct cpufreq_interactive_policyinfo {
 	struct timer_list policy_timer;
@@ -327,7 +331,7 @@ u32 get_freq_max_load(int cpu, unsigned int freq)
  * target load given the current load.
  */
 static unsigned int choose_freq(struct cpufreq_interactive_policyinfo *pcpu,
-		unsigned int loadadjfreq)
+		unsigned int loadadjfreq, bool op_ut_fore_cluster)
 {
 	unsigned int freq = pcpu->policy->cur;
 	unsigned int prevfreq, freqmin, freqmax;
@@ -339,6 +343,10 @@ static unsigned int choose_freq(struct cpufreq_interactive_policyinfo *pcpu,
 
 	do {
 		prevfreq = freq;
+		if (op_ut_fore_cluster)
+			tl = 70;
+		else
+
 		tl = freq_to_targetload(pcpu->policy->governor_data, freq);
 
 		/*
@@ -479,6 +487,10 @@ static void cpufreq_interactive_timer(unsigned long data)
 	bool skip_hispeed_logic, skip_min_sample_time;
 	bool jump_to_max_no_ts = false;
 	bool jump_to_max = false;
+	int op_max_cpu = -1;
+	unsigned int op_prev_laf = 0, op_pred_laf = 0;
+	int tmpclaim;
+
 
 	if (!down_read_trylock(&ppol->enable_sem))
 		return;
@@ -501,6 +513,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 		sched_get_cpus_busy(sl, ppol->policy->cpus);
 	max_cpu = cpumask_first(ppol->policy->cpus);
 	i = 0;
+	tmpclaim = opc_get_claims();
 	for_each_cpu(cpu, ppol->policy->cpus) {
 		pcpu = &per_cpu(cpuinfo, cpu);
 		if (tunables->use_sched_load) {
@@ -528,6 +541,14 @@ static void cpufreq_interactive_timer(unsigned long data)
 			prev_l = t_prevlaf / ppol->target_freq;
 		}
 
+		if (tmpclaim && opc_boost_target_load &&
+		    *opc_boost_target_load &&
+		    opc_claim_bit_test(tmpclaim, cpu) &&
+			t_prevlaf > op_prev_laf) {
+			op_prev_laf = t_prevlaf;
+			op_pred_laf = t_predlaf;
+			op_max_cpu = cpu;
+		}
 		/* find max of loadadjfreq inside policy */
 		if (t_prevlaf > prev_laf) {
 			prev_laf = t_prevlaf;
@@ -554,9 +575,22 @@ static void cpufreq_interactive_timer(unsigned long data)
 	spin_unlock(&ppol->load_lock);
 
 	tunables->boosted = tunables->boost_val || now < tunables->boostpulse_endtime;
+	if (op_max_cpu >= 0 && ppol->target_freq < tunables->hispeed_freq) {
+		prev_chfreq = choose_freq(ppol, op_prev_laf, true);
+		if (prev_chfreq > tunables->hispeed_freq)
+			prev_chfreq = choose_freq(ppol, prev_laf, false);
+		else if (op_max_cpu != max_cpu)
+			prev_chfreq = max(choose_freq(ppol, prev_laf, false), prev_chfreq);
 
-	prev_chfreq = choose_freq(ppol, prev_laf);
-	pred_chfreq = choose_freq(ppol, pred_laf);
+		pred_chfreq = choose_freq(ppol, op_pred_laf, true);
+		if (pred_chfreq > tunables->hispeed_freq)
+			pred_chfreq = choose_freq(ppol, pred_laf, false);
+		else if (op_pred_laf != pred_laf)
+			pred_chfreq = max(choose_freq(ppol, pred_laf, false), pred_chfreq);
+	} else {
+		prev_chfreq = choose_freq(ppol, prev_laf, false);
+		pred_chfreq = choose_freq(ppol, pred_laf, false);
+	}
 	chosen_freq = max(prev_chfreq, pred_chfreq);
 
 	if (prev_chfreq < ppol->policy->max && pred_chfreq >= ppol->policy->max)
@@ -596,11 +630,13 @@ static void cpufreq_interactive_timer(unsigned long data)
 	    new_freq > ppol->target_freq &&
 	    now - ppol->hispeed_validate_time <
 	    freq_to_above_hispeed_delay(tunables, ppol->target_freq)) {
-		trace_cpufreq_interactive_notyet(
-			max_cpu, pol_load, ppol->target_freq,
-			ppol->policy->cur, new_freq);
-		spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
-		goto rearm;
+		if (!(opc_boost && *opc_boost && max_cpu == op_max_cpu && (now - ppol->hispeed_validate_time > tunables->min_sample_time))) {
+		    trace_cpufreq_interactive_notyet(
+				max_cpu, pol_load, ppol->target_freq,
+				ppol->policy->cur, new_freq);
+			spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
+			goto rearm;
+		}
 	}
 
 	ppol->hispeed_validate_time = now;
@@ -619,6 +655,15 @@ static void cpufreq_interactive_timer(unsigned long data)
 	 * floor frequency for the minimum sample time since last validated.
 	 */
 	if (!skip_min_sample_time && new_freq < ppol->floor_freq) {
+		if (op_max_cpu >= 0 && opc_boost_min_sample_time && *opc_boost_min_sample_time && ppol->floor_freq <= tunables->hispeed_freq) {
+			if (now - ppol->floor_validate_time < DEFAULT_MIN_SAMPLE_TIME) {
+				trace_cpufreq_interactive_notyet(
+					max_cpu, pol_load, ppol->target_freq,
+					ppol->policy->cur, new_freq);
+				spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
+				goto rearm;
+			}
+		} else
 		if (now - ppol->floor_validate_time <
 				tunables->min_sample_time) {
 			trace_cpufreq_interactive_notyet(
@@ -649,14 +694,17 @@ static void cpufreq_interactive_timer(unsigned long data)
 	if (new_freq >= ppol->policy->max && !jump_to_max_no_ts)
 		ppol->max_freq_hyst_start_time = now;
 
-	if (ppol->target_freq == new_freq &&
-			ppol->target_freq <= ppol->policy->cur) {
-		trace_cpufreq_interactive_already(
-			max_cpu, pol_load, ppol->target_freq,
-			ppol->policy->cur, new_freq);
-		spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
-		goto rearm;
-	}
+    if (ppol->target_freq == new_freq &&
+            ppol->target_freq <= ppol->policy->cur && ppol->target_freq <= ppol->policy->oneplus_max) {
+        trace_cpufreq_interactive_already(
+            max_cpu, pol_load, ppol->target_freq,
+            ppol->policy->cur, new_freq);
+        spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
+        goto rearm;
+    }
+    trace_printk("new_freq  %d   oneplus_max  %d\n", new_freq, ppol->policy->oneplus_max);
+    if(new_freq > ppol->policy->oneplus_max)
+        new_freq = ppol->policy->oneplus_max;
 
 	trace_cpufreq_interactive_target(max_cpu, pol_load, ppol->target_freq,
 					 ppol->policy->cur, new_freq);
@@ -729,10 +777,10 @@ static int cpufreq_interactive_speedchange_task(void *data)
 				continue;
 			}
 
-			if (ppol->target_freq != ppol->policy->cur)
-				__cpufreq_driver_target(ppol->policy,
-							ppol->target_freq,
-							CPUFREQ_RELATION_H);
+            if (ppol->target_freq != ppol->policy->cur)
+                __cpufreq_driver_target(ppol->policy,
+                            ppol->target_freq,
+                            CPUFREQ_RELATION_H);
 			trace_cpufreq_interactive_setspeed(cpu,
 						     ppol->target_freq,
 						     ppol->policy->cur);
@@ -785,6 +833,44 @@ static void cpufreq_interactive_boost(struct cpufreq_interactive_tunables *tunab
 		wake_up_process_no_notif(speedchange_task);
 }
 
+extern unsigned int ux_notify;
+#define DEFAULT_MAX_FREQ_BIG 2342400
+#define DEFAULT_MAX_FREQ_SMALL 1593600
+
+#define LIMIT_FREQ_BIG 1209600
+#define LIMIT_FREQ_SMALL 1056000
+
+
+void reset_cpu_max_freq(void)
+{
+    struct cpufreq_interactive_policyinfo *ppol = per_cpu(polinfo, 0);
+    ppol->policy->oneplus_max = ppol->policy->max;
+    ppol = per_cpu(polinfo, 2);
+    ppol->policy->oneplus_max = ppol->policy->max;
+}
+
+void update_cpufreq_policy(int cpu)
+{
+    struct cpufreq_interactive_policyinfo *ppol = per_cpu(polinfo, cpu);
+    struct sched_cluster *cluster = cpu_rq(cpu)->cluster;
+    if(ux_notify){
+        switch(cluster->governor_policy) {
+            case UX_GOVERNOR:
+            case UX_GROUP_GOVERNOR:            
+                if(cpu < 2)  
+                    ppol->policy->oneplus_max = DEFAULT_MAX_FREQ_SMALL;
+                else
+                    ppol->policy->oneplus_max = DEFAULT_MAX_FREQ_BIG;
+                break;
+            case NEGATIVE_GOVERNOR:
+                if(cpu < 2)
+                    ppol->policy->oneplus_max = LIMIT_FREQ_SMALL;
+                else
+                    ppol->policy->oneplus_max = LIMIT_FREQ_BIG;
+                break;            
+        }
+    }
+}
 static int load_change_callback(struct notifier_block *nb, unsigned long val,
 				void *data)
 {
@@ -809,6 +895,8 @@ static int load_change_callback(struct notifier_block *nb, unsigned long val,
 	ppol->notif_pending = true;
 	ppol->notif_cpu = cpu;
 	spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
+
+    update_cpufreq_policy(cpu);
 
 	if (!hrtimer_is_queued(&ppol->notif_timer))
 		__hrtimer_start_range_ns(&ppol->notif_timer, ms_to_ktime(1),

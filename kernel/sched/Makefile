@@ -17,6 +17,7 @@ else
 obj-y += core.o fair.o rt.o
 endif
 
+obj-y += ux_task.o
 obj-y += proc.o clock.o cputime.o
 obj-y += idle_task.o deadline.o stop_task.o
 obj-y += wait.o completion.o idle.o sched_avg.o

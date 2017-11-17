@@ -89,6 +89,9 @@
 #include <asm/app_api.h>
 #endif
 
+#include <../drivers/oneplus/coretech/opchain/opchain_helper.h>
+
+
 #include "sched.h"
 #include "../workqueue_internal.h"
 #include "../smpboot.h"
@@ -1192,13 +1195,18 @@ unsigned long __weak arch_get_cpu_efficiency(int cpu)
 /* Keep track of max/min capacity possible across CPUs "currently" */
 static void __update_min_max_capacity(void)
 {
-	int i;
 	int max_cap = 0, min_cap = INT_MAX;
 
-	for_each_online_cpu(i) {
-		max_cap = max(max_cap, cpu_capacity(i));
-		min_cap = min(min_cap, cpu_capacity(i));
-	}
+    struct sched_cluster *cluster;
+
+    for_each_sched_cluster(cluster) {
+        if (cluster->capacity > max_cap)
+            max_cap = cluster->capacity;
+        if (cluster->capacity < min_cap)
+            min_cap = cluster->capacity;
+    }
+    op_min_cap_load = div64_u64((u64)min_cap * (u64)sched_ravg_window, max_possible_capacity);
+    opc_update_cpu_cravg_demand(op_min_cap_load);
 
 	max_capacity = max_cap;
 	min_capacity = min_cap;
@@ -1316,6 +1324,7 @@ int num_clusters;
 unsigned int max_power_cost = 1;
 
 static struct sched_cluster init_cluster = {
+    .governor_policy      =   UX_GOVERNOR,
 	.list			=	LIST_HEAD_INIT(init_cluster.list),
 	.id			=	0,
 	.max_power_cost		=	1,
@@ -1334,6 +1343,44 @@ static struct sched_cluster init_cluster = {
 	.dstate_wakeup_latency	=	0,
 	.exec_scale_factor	=	1024,
 };
+
+extern unsigned int ux_notify;
+extern bool oneplus_is_uxtask(struct task_struct *t);
+extern bool oneplus_is_server_or_uxgroup(struct task_struct *t);
+extern bool oneplus_is_background(struct task_struct *t);
+void update_cluster_governor_policy(int cpu)
+{
+    int ux_num = 0;
+    int negative_num = 0;
+    int i = 0;
+    int policy_update;
+    struct sched_cluster *cluster = cpu_rq(cpu)->cluster;
+    struct cpumask *cpus = &(cluster->cpus);
+    raw_spin_lock(&cluster->governor_lock);
+    for_each_cpu(i, cpus) {
+            struct task_struct *curr_task = cpu_rq(i)->curr;
+            if(cpu_is_offline(i))
+                continue;
+            if(!oneplus_is_background(curr_task->group_leader))
+                    ux_num++;
+            else
+                negative_num++;
+    }
+
+    if (ux_num > 0)
+        policy_update = UX_GOVERNOR;
+    else
+        policy_update = NEGATIVE_GOVERNOR;
+      
+    if(policy_update != cluster->governor_policy ){
+        cluster->governor_policy = policy_update;
+        atomic_notifier_call_chain(
+            &load_alert_notifier_head, 0,
+            (void *)(long)cpu);
+    }
+    raw_spin_unlock(&cluster->governor_lock);
+}
+
 
 void update_all_clusters_stats(void)
 {
@@ -1501,6 +1548,8 @@ static struct sched_cluster *alloc_new_cluster(const struct cpumask *cpus)
 	if (cluster->efficiency < min_possible_efficiency)
 		min_possible_efficiency = cluster->efficiency;
 
+    raw_spin_lock_init(&cluster->governor_lock);
+    cluster->governor_policy = UX_GOVERNOR;
 	return cluster;
 }
 
@@ -1549,6 +1598,7 @@ static void init_clusters(void)
 {
 	bitmap_clear(all_cluster_ids, 0, NR_CPUS);
 	init_cluster.cpus = *cpu_possible_mask;
+    raw_spin_lock_init(&init_cluster.governor_lock);
 	INIT_LIST_HEAD(&cluster_head);
 }
 
@@ -6270,6 +6320,9 @@ again:
  *          - return from syscall or exception to user-space
  *          - return from interrupt-handler to user-space
  */
+extern void update_cluster_governor_policy(int cpu);
+extern unsigned int ux_notify;
+ 
 static void __sched __schedule(void)
 {
 	struct task_struct *prev, *next;
@@ -6379,6 +6432,8 @@ asmlinkage __visible void __sched schedule(void)
 
 	sched_submit_work(tsk);
 	__schedule();
+    if(ux_notify)
+        update_cluster_governor_policy(smp_processor_id());
 }
 EXPORT_SYMBOL(schedule);
 
@@ -7532,21 +7587,12 @@ out_unlock:
 	return retval;
 }
 
-int affinity_on = 0;
-int affinity_core = 2;
-#define BG_FG_POLICY 0xfffc
-#define TOP_POLICY 0xfffd
-long sched_setaffinity(pid_t pid, struct cpumask *in_mask)
+long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 {
 	cpumask_var_t cpus_allowed, new_mask;
 	struct task_struct *p;
 	int retval;
 
-    int ams_flag = 0;
-    if(pid & 0x80000000){
-        pid = pid & 0x7fffffff;
-        ams_flag = 1;
-    }
 	rcu_read_lock();
 
 	p = find_process_by_pid(pid);
@@ -7554,23 +7600,6 @@ long sched_setaffinity(pid_t pid, struct cpumask *in_mask)
 		rcu_read_unlock();
 		return -ESRCH;
 	}
-
-    if(ams_flag){
-        if(cpumask_test_cpu(3, in_mask))
-            p->ams_policy = TOP_POLICY;
-        else
-            p->ams_policy = BG_FG_POLICY;
-        if(!affinity_on && !cpumask_test_cpu(3, in_mask)){
-            rcu_read_unlock();
-            return 0;
-        }
-        if(affinity_core > 0 && !cpumask_test_cpu(3, in_mask)){
-            int i;
-            cpumask_clear(in_mask);
-            for(i = 0; i < affinity_core; i++)
-                cpumask_set_cpu(i, in_mask);
-        }
-    }
 
 	/* Prevent p going away */
 	get_task_struct(p);
@@ -7589,9 +7618,6 @@ long sched_setaffinity(pid_t pid, struct cpumask *in_mask)
 		goto out_free_cpus_allowed;
 	}
 	retval = -EPERM;
-    if(!memcmp(current->comm, "thermal-engine", 12))
-        goto direct_set;
-
 	if (!check_same_owner(p)) {
 		rcu_read_lock();
 		if (!ns_capable(__task_cred(p)->user_ns, CAP_SYS_NICE)) {
@@ -7605,7 +7631,6 @@ long sched_setaffinity(pid_t pid, struct cpumask *in_mask)
 	if (retval)
 		goto out_free_new_mask;
 
-direct_set:
 	cpuset_cpus_allowed(p, cpus_allowed);
 	cpumask_and(new_mask, in_mask, cpus_allowed);
 
@@ -7649,78 +7674,6 @@ out_put_task:
 	put_task_struct(p);
 	return retval;
 }
-
-
-static LIST_HEAD(affility_list);
-
-void process_affinity(int on)
-{
-    struct task_struct *g, *p;
-    struct cpumask limit_mask;
-    struct cpumask unlimit_mask;
-    const struct cpumask* msk;
-    int i;
-    cpumask_setall(&limit_mask);
-    cpumask_setall(&unlimit_mask);
-    if(affinity_core > 0){
-        cpumask_clear(&limit_mask);
-        for(i = 0; i < affinity_core; i++)
-            cpumask_set_cpu(i, &limit_mask);
-    }
-    if(on){
-        msk = &limit_mask;
-    	read_lock(&tasklist_lock);
-    	do_each_thread(g, p) {
-    		if(p->ams_policy == BG_FG_POLICY)
-                //sched_setaffinity(p->pid, &limit_mask);
-                list_add(&p->affinity_node, &affility_list);
-    	}  while_each_thread(g, p);
-    	read_unlock(&tasklist_lock);
-        while(!list_empty(&affility_list)){
-            p = list_first_entry(&affility_list, struct task_struct, affinity_node);
-            list_del_init(&p->affinity_node);
-            sched_setaffinity(p->pid, &limit_mask);
-        }
-    }
-    else{
-        msk = &unlimit_mask;
-        read_lock(&tasklist_lock);
-	    do_each_thread(g, p) {
-		    if(p->ams_policy == BG_FG_POLICY)
-                //sched_setaffinity(p->pid, &unlimit_mask);
-                list_add(&p->affinity_node, &affility_list);
-	    }  while_each_thread(g, p);
-	    read_unlock(&tasklist_lock);
-        while(!list_empty(&affility_list)){
-            p = list_first_entry(&affility_list, struct task_struct, affinity_node);
-            list_del_init(&p->affinity_node);
-            sched_setaffinity(p->pid, &unlimit_mask);
-        }
-    }
-    BUG_ON(!list_empty(&affility_list));
-}
-
-int affinity_switch_handler(struct ctl_table *table, int write,
-            void __user *buffer, size_t *lenp,
-            loff_t *ppos)
-{
-    int *buf = buffer;
-    affinity_on = buf[0];
-    process_affinity(affinity_on);
-    return 0;
-}
-
-int affinity_core_handler(struct ctl_table *table, int write,
-            void __user *buffer, size_t *lenp,
-            loff_t *ppos)
-{
-    int *buf = buffer;
-    affinity_core = buf[0];
-    if(affinity_on)
-        process_affinity(affinity_on);
-    return 0;
-}
-
 
 static int get_user_cpu_mask(unsigned long __user *user_mask_ptr, unsigned len,
 			     struct cpumask *new_mask)

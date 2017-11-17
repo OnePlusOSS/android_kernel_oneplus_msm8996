@@ -1377,8 +1377,6 @@ struct task_struct {
 	unsigned int policy;
 	int nr_cpus_allowed;
 	cpumask_t cpus_allowed;
-    int ams_policy;
-    struct list_head affinity_node;
 
 #ifdef CONFIG_PREEMPT_RCU
 	int rcu_read_lock_nesting;
@@ -1787,6 +1785,11 @@ struct task_struct {
 	unsigned int	sequential_io;
 	unsigned int	sequential_io_avg;
 #endif
+	u64 utask_tag;
+	u64 utask_tag_base;
+	int etask_claim;
+	int claim_cpu;
+	bool utask_slave;
 };
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */
@@ -3184,7 +3187,7 @@ struct migration_notify_data {
 
 extern struct atomic_notifier_head load_alert_notifier_head;
 
-extern long sched_setaffinity(pid_t pid, struct cpumask *new_mask);
+extern long sched_setaffinity(pid_t pid, const struct cpumask *new_mask);
 extern long sched_getaffinity(pid_t pid, struct cpumask *mask);
 
 #ifdef CONFIG_CGROUP_SCHED
