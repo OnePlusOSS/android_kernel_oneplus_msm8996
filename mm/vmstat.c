@@ -682,6 +682,7 @@ static char * const migratetype_names[MIGRATE_TYPES] = {
 	"CMA",
 #endif
 	"Reserve",
+	"Defrag-Pool",
 #ifdef CONFIG_MEMORY_ISOLATION
 	"Isolate",
 #endif
@@ -796,6 +797,7 @@ const char * const vmstat_text[] = {
 	"workingset_nodereclaim",
 	"nr_anon_transparent_hugepages",
 	"nr_free_cma",
+	"nr_free_defrag",
 	"nr_swapcache",
 
 	/* enum writeback_stat_item counters */
@@ -909,6 +911,7 @@ const char * const vmstat_text[] = {
 
 
 #ifdef CONFIG_PROC_FS
+#include <../drivers/oneplus/coretech/defrag/defrag_helper.h>
 static void frag_show_print(struct seq_file *m, pg_data_t *pgdat,
 						struct zone *zone)
 {
@@ -927,6 +930,7 @@ static int frag_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
 	walk_zones_in_node(m, pgdat, frag_show_print);
+	print_fp_statistics(m);
 	return 0;
 }
 
@@ -936,6 +940,8 @@ static void pagetypeinfo_showfree_print(struct seq_file *m,
 	int order, mtype;
 
 	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++) {
+		if ((mtype == MIGRATE_UNMOVABLE_DEFRAG_POOL) && likely(!alloc_status))
+			continue;
 		seq_printf(m, "Node %4d, zone %8s, type %12s ",
 					pgdat->node_id,
 					zone->name,
@@ -1002,7 +1008,11 @@ static void pagetypeinfo_showblockcount_print(struct seq_file *m,
 	/* Print counts */
 	seq_printf(m, "Node %d, zone %8s ", pgdat->node_id, zone->name);
 	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
+	{
+		if ((mtype == MIGRATE_UNMOVABLE_DEFRAG_POOL) && likely(!alloc_status))
+			continue;
 		seq_printf(m, "%12lu ", count[mtype]);
+	}
 	seq_putc(m, '\n');
 }
 
@@ -1014,7 +1024,11 @@ static int pagetypeinfo_showblockcount(struct seq_file *m, void *arg)
 
 	seq_printf(m, "\n%-23s", "Number of blocks type ");
 	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
+	{
+		if ((mtype == MIGRATE_UNMOVABLE_DEFRAG_POOL) && likely(!alloc_status))
+			continue;
 		seq_printf(m, "%12s ", migratetype_names[mtype]);
+	}
 	seq_putc(m, '\n');
 	walk_zones_in_node(m, pgdat, pagetypeinfo_showblockcount_print);
 

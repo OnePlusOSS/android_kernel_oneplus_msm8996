@@ -126,6 +126,12 @@ static bool sleep_disabled;
 module_param_named(sleep_disabled,
 	sleep_disabled, bool, S_IRUGO | S_IWUSR | S_IWGRP);
 
+void msm_cpuidle_set_sleep_disable(bool disable)
+{
+       sleep_disabled = disable;
+       pr_info("%s:sleep_disabled=%d\n",__func__,disable);
+}
+
 s32 msm_cpuidle_get_deep_idle_latency(void)
 {
 	return 10;

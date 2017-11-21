@@ -121,7 +121,7 @@ struct bus_type {
 
 	int (*suspend)(struct device *dev, pm_message_t state);
 	int (*resume)(struct device *dev);
-
+	int (*offline_clash)(struct device *dev);
 	const struct dev_pm_ops *pm;
 
 	const struct iommu_ops *iommu_ops;

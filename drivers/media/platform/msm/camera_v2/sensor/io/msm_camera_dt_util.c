@@ -217,10 +217,7 @@ int msm_sensor_get_sub_module_index(struct device_node *of_node,
 			pr_err("%s failed %d\n", __func__, __LINE__);
 			goto ERROR;
 		}
-		if (of_device_is_available(src_node))
-			sensor_info->subdev_id[SUB_MODULE_ACTUATOR] = val;
-		else
-			CDBG("%s:%d actuator disabled!\n", __func__, __LINE__);
+		sensor_info->subdev_id[SUB_MODULE_ACTUATOR] = val;
 		of_node_put(src_node);
 		src_node = NULL;
 	}
@@ -1371,7 +1368,7 @@ int32_t msm_sensor_driver_get_gpio_data(
 	gpio_array_size = of_gpio_count(of_node);
 	CDBG("gpio count %d\n", gpio_array_size);
 	if (gpio_array_size <= 0)
-		return -ENODEV;
+		return 0;
 
 	gconf = kzalloc(sizeof(struct msm_camera_gpio_conf),
 		GFP_KERNEL);

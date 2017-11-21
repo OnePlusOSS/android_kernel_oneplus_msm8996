@@ -28,11 +28,10 @@
 #define XLOG_DEFAULT_ENABLE 0
 #endif
 
-#define XLOG_DEFAULT_PANIC 1
-#define XLOG_DEFAULT_REGDUMP 0x2 /* dump in RAM */
-#define XLOG_DEFAULT_DBGBUSDUMP 0x2 /* dump in RAM */
-#define XLOG_DEFAULT_VBIF_DBGBUSDUMP 0x2 /* dump in RAM */
-
+#define XLOG_DEFAULT_PANIC 0
+#define XLOG_DEFAULT_REGDUMP 0x1 /* dump in RAM */
+#define XLOG_DEFAULT_DBGBUSDUMP 0x1 /* dump in RAM */
+#define XLOG_DEFAULT_VBIF_DBGBUSDUMP 0x1 /* dump in RAM */
 /*
  * xlog will print this number of entries when it is called through
  * sysfs node or panic. This prevents kernel log from xlog message

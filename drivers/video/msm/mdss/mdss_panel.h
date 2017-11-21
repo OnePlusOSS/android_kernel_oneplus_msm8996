@@ -19,7 +19,7 @@
 #include <linux/stringify.h>
 #include <linux/types.h>
 #include <linux/debugfs.h>
-
+#include "mdss_oem_config.h"
 #define KHZ_TO_HZ 1000
 
 /* panel id type */
@@ -115,6 +115,11 @@ enum {
 	MDSS_PANEL_POWER_ON,
 	MDSS_PANEL_POWER_LP1,
 	MDSS_PANEL_POWER_LP2,
+};
+
+enum {
+	MDSS_PANEL_LOW_PERSIST_MODE_OFF = 0,
+	MDSS_PANEL_LOW_PERSIST_MODE_ON,
 };
 
 enum {
@@ -267,6 +272,20 @@ enum mdss_intf_events {
 	MDSS_EVENT_PANEL_TIMING_SWITCH,
 	MDSS_EVENT_UPDATE_PARAMS,
 	MDSS_EVENT_MAX,
+	MDSS_EVENT_PANEL_SET_ACL,
+	MDSS_EVENT_PANEL_GET_ACL,
+	MDSS_EVENT_PANEL_SET_MAX_BRIGHTNESS,
+	MDSS_EVENT_PANEL_GET_MAX_BRIGHTNESS,
+	MDSS_EVENT_PANEL_SET_SRGB_MODE,
+	MDSS_EVENT_PANEL_GET_SRGB_MODE,
+	MDSS_EVENT_PANEL_SET_ADOBE_RGB_MODE,
+	MDSS_EVENT_PANEL_GET_ADOBE_RGB_MODE,
+	MDSS_EVENT_PANEL_SET_DCI_P3_MODE,
+	MDSS_EVENT_PANEL_GET_DCI_P3_MODE,
+	MDSS_EVENT_PANEL_SET_NIGHT_MODE,
+	MDSS_EVENT_PANEL_GET_NIGHT_MODE,
+	MDSS_EVENT_PANEL_SET_ONEPLUS_MODE,
+	MDSS_EVENT_PANEL_GET_ONEPLUS_MODE,
 };
 
 struct lcd_panel_info {
@@ -743,6 +762,9 @@ struct mdss_panel_info {
 	/* debugfs structure for the panel */
 	struct mdss_panel_debugfs_info *debugfs_info;
 
+	/* persistence mode on/off */
+	bool persist_mode;
+
 	/* HDR properties of display panel*/
 	struct mdss_panel_hdr_properties hdr_properties;
 };
@@ -784,6 +806,7 @@ struct mdss_panel_timing {
 struct mdss_panel_data {
 	struct mdss_panel_info panel_info;
 	void (*set_backlight) (struct mdss_panel_data *pdata, u32 bl_level);
+	int (*apply_display_setting)(struct mdss_panel_data *pdata, u32 mode);
 	unsigned char *mmss_cc_base;
 
 	/**
@@ -809,6 +832,9 @@ struct mdss_panel_data {
 	/* To store dsc cfg name passed by bootloader */
 	char dsc_cfg_np_name[MDSS_MAX_PANEL_LEN];
 	struct mdss_panel_data *next;
+
+	int panel_te_gpio;
+	struct completion te_done;
 };
 
 struct mdss_panel_debugfs_info {

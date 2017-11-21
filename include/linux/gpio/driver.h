@@ -87,7 +87,11 @@ struct gpio_chip {
 						unsigned offset, int value);
 	int			(*get)(struct gpio_chip *chip,
 						unsigned offset);
+	int			(*get_dash)(struct gpio_chip *chip,
+					unsigned offset);
 	void			(*set)(struct gpio_chip *chip,
+						unsigned offset, int value);
+	void			(*set_dash)(struct gpio_chip *chip,
 						unsigned offset, int value);
 	int			(*set_debounce)(struct gpio_chip *chip,
 						unsigned offset,
