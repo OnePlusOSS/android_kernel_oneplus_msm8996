@@ -3415,7 +3415,6 @@ static int set_usb_current_limit_vote_cb(struct votable *votable,
 	}
 
 	effective_client = get_effective_client_locked(chip->usb_icl_votable);
-
 	/* disable parallel charging if HVDCP is voting for 300mA */
 	if (effective_client && strcmp(effective_client, HVDCP_ICL_VOTER) == 0)
 		smbchg_parallel_usb_disable(chip);
@@ -4480,11 +4479,11 @@ static void set_usb_switch(struct smbchg_chip *chg, bool enable)
 	if (enable) {
 		pr_err("switch on fastchg\n");
 		if (chg->boot_usb_present && chg->re_trigr_dash_done) {
-			vote(chg->usb_icl_votable, USER_ICL_VOTER,
+			vote(chg->usb_icl_votable, PSY_ICL_VOTER,
 					true, 0);
 			usleep_range(500000, 510000);
-			vote(chg->usb_icl_votable, USER_ICL_VOTER,
-					true, CURRENT_1500_MA*1000);
+			vote(chg->usb_icl_votable, PSY_ICL_VOTER,
+					true, CURRENT_1500_MA);
 		}
 		set_mcu_en_gpio_value(1);
 		msleep(10);
@@ -5523,6 +5522,7 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 		chip->usb_enum_status = false;
 		chip->non_std_chg_present = false;
 		chip->boot_usb_present = true;
+		chip->re_trigr_dash_done = 0;
 		qpnp_battery_temp_region_set(chip, BATT_TEMP_INVALID);
 		wake_unlock(&chip->chg_wake_lock);
 		cancel_delayed_work(&chip->non_standard_charger_check_work);
