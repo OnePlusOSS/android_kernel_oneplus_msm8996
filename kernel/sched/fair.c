@@ -2390,6 +2390,14 @@ unsigned int __read_mostly sysctl_sched_prefer_sync_wakee_to_waker;
  */
 unsigned int __read_mostly sched_spill_load;
 unsigned int __read_mostly sysctl_sched_spill_load_pct = 100;
+/*
+ * If a CPU has only two runnable tasks and the currently running
+ * task is a small task, prevent the other task migrating to another
+ * CPU in the same cluster. This policy reduces excessive intra-cluster
+ * migrations.
+ */
+static unsigned int __read_mostly sched_small_task_load;
+static unsigned int __read_mostly sched_small_task_load_pct = 5;
 
 /*
  * frequency aggregation threshold
@@ -2515,6 +2523,10 @@ void set_hmp_defaults(void)
 
 	sched_big_waker_task_load =
 		div64_u64((u64)sysctl_sched_big_waker_task_load_pct *
+			  (u64)sched_ravg_window, 100);
+
+	sched_small_task_load =
+		div64_u64((u64)sched_small_task_load_pct *
 			  (u64)sched_ravg_window, 100);
 }
 
@@ -7409,6 +7421,11 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 
 	/* Record that we found atleast one task that could run on dst_cpu */
 	env->flags &= ~LBF_ALL_PINNED;
+	if (same_cluster(env->dst_cpu, env->src_cpu)) {
+		if (env->src_rq->nr_running <= 2 &&
+			task_load(env->src_rq->curr) < sched_small_task_load)
+			return 0;
+		}
 
 	if (cpu_capacity(env->dst_cpu) > cpu_capacity(env->src_cpu) &&
 		nr_big_tasks(env->src_rq) && !is_big_task(p))

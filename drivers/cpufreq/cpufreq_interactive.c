@@ -694,17 +694,14 @@ static void cpufreq_interactive_timer(unsigned long data)
 	if (new_freq >= ppol->policy->max && !jump_to_max_no_ts)
 		ppol->max_freq_hyst_start_time = now;
 
-    if (ppol->target_freq == new_freq &&
-            ppol->target_freq <= ppol->policy->cur && ppol->target_freq <= ppol->policy->oneplus_max) {
-        trace_cpufreq_interactive_already(
-            max_cpu, pol_load, ppol->target_freq,
-            ppol->policy->cur, new_freq);
-        spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
-        goto rearm;
-    }
-    trace_printk("new_freq  %d   oneplus_max  %d\n", new_freq, ppol->policy->oneplus_max);
-    if(new_freq > ppol->policy->oneplus_max)
-        new_freq = ppol->policy->oneplus_max;
+	if (ppol->target_freq == new_freq &&
+			ppol->target_freq <= ppol->policy->cur) {
+		trace_cpufreq_interactive_already(
+			max_cpu, pol_load, ppol->target_freq,
+			ppol->policy->cur, new_freq);
+		spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
+		goto rearm;
+	}
 
 	trace_cpufreq_interactive_target(max_cpu, pol_load, ppol->target_freq,
 					 ppol->policy->cur, new_freq);
@@ -777,10 +774,10 @@ static int cpufreq_interactive_speedchange_task(void *data)
 				continue;
 			}
 
-            if (ppol->target_freq != ppol->policy->cur)
-                __cpufreq_driver_target(ppol->policy,
-                            ppol->target_freq,
-                            CPUFREQ_RELATION_H);
+			if (ppol->target_freq != ppol->policy->cur)
+				__cpufreq_driver_target(ppol->policy,
+							ppol->target_freq,
+							CPUFREQ_RELATION_H);
 			trace_cpufreq_interactive_setspeed(cpu,
 						     ppol->target_freq,
 						     ppol->policy->cur);
@@ -833,44 +830,6 @@ static void cpufreq_interactive_boost(struct cpufreq_interactive_tunables *tunab
 		wake_up_process_no_notif(speedchange_task);
 }
 
-extern unsigned int ux_notify;
-#define DEFAULT_MAX_FREQ_BIG 2342400
-#define DEFAULT_MAX_FREQ_SMALL 1593600
-
-#define LIMIT_FREQ_BIG 1209600
-#define LIMIT_FREQ_SMALL 1056000
-
-
-void reset_cpu_max_freq(void)
-{
-    struct cpufreq_interactive_policyinfo *ppol = per_cpu(polinfo, 0);
-    ppol->policy->oneplus_max = ppol->policy->max;
-    ppol = per_cpu(polinfo, 2);
-    ppol->policy->oneplus_max = ppol->policy->max;
-}
-
-void update_cpufreq_policy(int cpu)
-{
-    struct cpufreq_interactive_policyinfo *ppol = per_cpu(polinfo, cpu);
-    struct sched_cluster *cluster = cpu_rq(cpu)->cluster;
-    if(ux_notify){
-        switch(cluster->governor_policy) {
-            case UX_GOVERNOR:
-            case UX_GROUP_GOVERNOR:            
-                if(cpu < 2)  
-                    ppol->policy->oneplus_max = DEFAULT_MAX_FREQ_SMALL;
-                else
-                    ppol->policy->oneplus_max = DEFAULT_MAX_FREQ_BIG;
-                break;
-            case NEGATIVE_GOVERNOR:
-                if(cpu < 2)
-                    ppol->policy->oneplus_max = LIMIT_FREQ_SMALL;
-                else
-                    ppol->policy->oneplus_max = LIMIT_FREQ_BIG;
-                break;            
-        }
-    }
-}
 static int load_change_callback(struct notifier_block *nb, unsigned long val,
 				void *data)
 {
@@ -895,8 +854,6 @@ static int load_change_callback(struct notifier_block *nb, unsigned long val,
 	ppol->notif_pending = true;
 	ppol->notif_cpu = cpu;
 	spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
-
-    update_cpufreq_policy(cpu);
 
 	if (!hrtimer_is_queued(&ppol->notif_timer))
 		__hrtimer_start_range_ns(&ppol->notif_timer, ms_to_ktime(1),
