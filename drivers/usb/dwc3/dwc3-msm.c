@@ -273,8 +273,39 @@ struct dwc3_msm {
 	enum dwc3_perf_mode	curr_mode;
 };
 
+static RAW_NOTIFIER_HEAD(otg_switch_chain);
 int otg_switch = 0;
 struct dwc3_msm *opmdwc;
+
+static int call_otg_switch_notifiers(unsigned long val, void *v)
+{
+	return raw_notifier_call_chain(&otg_switch_chain,val,v);
+}
+
+int otg_switch_register_client(struct notifier_block *nb)
+{
+	int ret;
+	ret = raw_notifier_chain_register(&otg_switch_chain, nb);
+	if(ret)
+		pr_err("%s:notifier chain register fail!\n",__func__);
+
+	return 0;
+}
+
+EXPORT_SYMBOL(otg_switch_register_client);
+
+int otg_switch_unregister_client(struct notifier_block *nb)
+{
+	int ret;
+	ret = raw_notifier_chain_unregister(&otg_switch_chain, nb);
+	if(ret)
+		pr_err("%s:notifier chain unregister fail!\n",__func__);
+
+	return 0;
+}
+
+EXPORT_SYMBOL(otg_switch_unregister_client);
+
 
 static  int oem_test_id(int nr, const volatile unsigned long *addr, enum usb_otg_state otg_state)
 {
@@ -2854,10 +2885,12 @@ static int set_otg_switch(const char *val, struct kernel_param *kp)
 	       printk("OTG: disable! Current id_stat:%d \n", opmdwc->id_state);
 			if(opmdwc->id_state == DWC3_ID_GROUND)/*If OTG is connected, need to send notify.*/
 				dwc3_ext_event_notify(opmdwc);
+			call_otg_switch_notifiers(0,NULL);
 	}else if (!strncasecmp(val, "1", 1)){
 		printk("OTG: enable! Current id_stat:%d \n", opmdwc->id_state);
 		if(opmdwc->id_state == DWC3_ID_GROUND)/*If OTG is connected, need to send notify.*/
 			dwc3_ext_event_notify(opmdwc);
+		call_otg_switch_notifiers(1,NULL);
 	}
 	printk("OTG:write the otg switch to :%d\n",otg_switch);
 	return 0;
