@@ -664,6 +664,10 @@ out:
 		soc_calib = 100;
 	if(soc_calib < 0)
 		soc_calib = 0;
+	if (soc_calib == 0 && !charging_status
+		&& (bq27541_battery_voltage(di) / 1000) > 3400)
+		soc_calib = 1;
+
 	di->soc_pre = soc_calib;
 
 	if(soc_temp != soc_calib) {

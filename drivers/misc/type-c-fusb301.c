@@ -145,6 +145,7 @@
 #define TYPE_SNK 				(0x01 << TYPE_SNK_SHIFT)
 
 /*    REG_INT (0x13)    */
+#define INT_FAKE				0x00
 #define INT_ATTACH				0x01
 #define INT_DETACH_SHIFT		1
 #define INT_DETACH 				(0x01 << INT_DETACH_SHIFT)
@@ -157,6 +158,8 @@
 #define TTRYTO_EXP_TIME	((get_random_int() % 200) + 400) //400~600
 #define TCCDEBOUNCEMAX_TIME	200
 #define USE_TIMER_WHEN_DFP_TO_DETETC_UFP
+
+extern int otg_switch;
 
 /******************************************************************************/
 enum fusb301_drp_toggle{
@@ -213,6 +216,7 @@ struct fusb301_info {
 	struct work_struct try_sink_work;
 	#endif
 	bool otg_present;
+	bool irq_enwake_flag;
 };
 
 
@@ -461,6 +465,33 @@ static irqreturn_t fusb301_irq_thread(int irq, void *handle)
 		{
 			//SOURCE
 			#ifdef USE_TIMER_WHEN_DFP_TO_DETETC_UFP
+
+			if(!otg_switch && info->irq_enwake_flag)
+			{	/*otg-switch closed but irq-wake enabled in first-boot disable irq wake.*/
+				dev_err(&info->i2c->dev,"%s : otg_switch=(%d),irq_enwake_flag=(%d),first boot disable irq wake!\n",\
+					__func__,otg_switch,info->irq_enwake_flag);
+				disable_irq_wake(irq);
+				info->irq_enwake_flag = false;
+				goto done;
+
+			}
+			else if(!otg_switch && !info->irq_enwake_flag)
+			{	/*otg-switch closed and irq-wake disabled,irq storm or normal insertion without open otg-switch do nothing*/
+				dev_err(&info->i2c->dev,"%s : otg_switch=(%d),irq_enwake_flag=(%d) irq storm or insertion without open otg-switch!\n",\
+					__func__,otg_switch,info->irq_enwake_flag);
+
+				goto done;
+			}
+			else if(otg_switch && !info->irq_enwake_flag)
+			{	/*otg-switch opened but irq-wake disabled,go on!.*/
+				dev_err(&info->i2c->dev,"%s : otg_switch=(%d),irq_enwake_flag=(%d),enable_irq_wake fail!\n",\
+					__func__,otg_switch,info->irq_enwake_flag);
+
+			}
+			else /*otg-switch opened and irq-wake enabled,go work!*/
+				dev_err(&info->i2c->dev,"%s : otg_switch=(%d),irq_enwake_flag=(%d)\n",\
+					__func__,otg_switch,info->irq_enwake_flag);
+
 			info->state = FUSB301_ATTACHED_SRC;
 
 			if(!info->TriedSink)
@@ -545,7 +576,7 @@ static irqreturn_t fusb301_irq_thread(int irq, void *handle)
 	}
 	else
 		dev_err(&info->i2c->dev,"%s: weird interrupt!\n", __func__);
-
+done:
     return IRQ_HANDLED;
 }
 
@@ -752,6 +783,100 @@ static struct notifier_block fusb301_reboot_notifier = {
     .notifier_call = fusb301_power_down_callback,
 };
 
+extern int otg_switch_register_client(struct notifier_block *nb);
+
+static int fusb301_fake_trigger(struct fusb301_info *info)
+{
+    u8 intr, rdata;
+
+	dev_err(&info->i2c->dev,"%s: Fake irq trigger!\n",__func__);
+    fusb301_read_reg(info->i2c, REG_INT, &intr);
+	dev_err(&info->i2c->dev,"%s: type<%d> int(0x%02x)\n", __func__,info->fusb_type, intr);
+
+	if(intr == INT_FAKE)// fake trigger 0x00
+	{
+		fusb301_read_reg(info->i2c, REG_TYPE, &rdata);
+		fusb301_check_type(info, rdata);
+		fusb301_read_reg(info->i2c, REG_STAT, &rdata);
+		fusb301_check_orient(info,rdata);
+		dev_err(&info->i2c->dev,"%s: Fake interrupt! TYPE is %d, Orient is %d\n", __func__, info->fusb_type, info->fusb_orient);
+
+		if(info->fusb_type == FUSB301_TYPE_SOURCE)//as source
+		{
+			//SOURCE
+			/*for fake trigger,need handle source scenario to trigger otg*/
+			info->otg_present = true;
+			dev_err(&info->i2c->dev,"%s : otg_present = (%d)\n",__func__,info->otg_present);
+			power_supply_set_usb_otg(info->usb_psy, info->otg_present ? 1 : 0);
+			//TODO triger OTG isr,open 5V VBUS and change USB PHY to HOST
+		}
+		else if(info->fusb_type == FUSB301_TYPE_SINK)//as sink
+		{
+		    // SINK
+			dev_err(&info->i2c->dev, "%s: type<%d> do nothing!\n", __func__,info->fusb_type);
+		}
+
+	}
+	else if(intr & INT_DETACH)
+	{
+	    // Detach
+	    dev_err(&info->i2c->dev,"%s: Detach interrupt!\n", __func__);
+	}
+	else if(intr & INT_BC_LVL)
+	{
+	    dev_err(&info->i2c->dev,"%s: BC_LVL interrupt!\n", __func__);
+	}
+	else if(intr & INT_ACC_CHG)
+	{
+	    dev_err(&info->i2c->dev,"%s: Accessory change interrupt!\n", __func__);
+	}
+	else
+		dev_err(&info->i2c->dev,"%s: weird interrupt!\n", __func__);
+
+    return 0;
+}
+
+
+static int otg_switch_callback(
+		struct notifier_block *nb, unsigned long value, void *data)
+{
+	if(ginfo == NULL){
+		return NOTIFY_OK;
+	}
+
+	if(value == 1){
+		dev_err(&ginfo->i2c->dev,"%s: value=(%ld)\n",__func__,value);
+		if(otg_switch && !ginfo->irq_enwake_flag){
+			/*otg-switch opened but irq wake disabled,need enable irq wake.*/
+			dev_err(&ginfo->i2c->dev,"%s : otg_switch=(%d),irq_enwake_flag=(%d),enable_irq_wake\n",\
+					__func__,otg_switch,ginfo->irq_enwake_flag);
+			enable_irq_wake(ginfo->irq);
+			ginfo->irq_enwake_flag = true;
+			/*insertion without open otg-switch first time,when open otg-switch update insertion event->irq 0x00*/
+			fusb301_fake_trigger(ginfo);
+		}
+	}
+	else if(value == 0){
+		dev_err(&ginfo->i2c->dev,"%s: value=(%ld)\n",__func__,value);
+		if(!otg_switch && ginfo->irq_enwake_flag){
+			/*otg-switch closed but irq wake enabled,need disable irq wake.*/
+			dev_err(&ginfo->i2c->dev,"%s : otg_switch=(%d),irq_enwake_flag=(%d),disable_irq_wake\n",\
+					__func__,otg_switch,ginfo->irq_enwake_flag);
+			disable_irq_wake(ginfo->irq);
+			ginfo->irq_enwake_flag = false;
+		}
+	}
+	else
+		pr_err("%s:otg_switch value=(%ld)\n",__func__,value);
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block otg_switch_notifier = {
+	.notifier_call = otg_switch_callback,
+};
+
+
 static int fusb301_probe(
 	struct i2c_client *client, const struct i2c_device_id *id)
 {
@@ -860,6 +985,7 @@ static int fusb301_probe(
 		 "failed to enable wakeup src %d\n", ret);
 		goto enable_irq_failed;
 	}
+	info->irq_enwake_flag = true;
 	/*
 	#if 0
 	ret = enable_irq_wake(info->OTG_USB_ID_irq);
@@ -873,6 +999,7 @@ static int fusb301_probe(
 
     ginfo = info;
     register_reboot_notifier(&fusb301_reboot_notifier);
+	otg_switch_register_client(&otg_switch_notifier);
 
     dev_err(&info->i2c->dev,"%s OK!\n",__func__);
 	wake_lock_init(&info->otg_wl, WAKE_LOCK_SUSPEND, "fusb301_otg_wl");
