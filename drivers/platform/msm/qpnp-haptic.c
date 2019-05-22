@@ -380,7 +380,6 @@ struct qpnp_hap {
 	u8 pmic_subtype;
 	u8 auto_res_mode;
 	bool lra_hw_auto_resonance;
-	bool vcc_pon_enabled;
 	bool state;
 	bool use_play_irq;
 	bool use_sc_irq;
@@ -393,10 +392,13 @@ struct qpnp_hap {
 	bool correct_lra_drive_freq;
 	bool misc_trim_error_rc19p2_clk_reg_present;
 	bool perform_lra_auto_resonance_search;
+	int                 enable_time;
 };
 
 static struct qpnp_hap *ghap;
 
+/* wulaibin 2015-11-18 optimize speed of the vibrator response */
+static struct workqueue_struct *vibqueue;
 /* helper to read a pmic register */
 static int qpnp_hap_read_reg(struct qpnp_hap *hap, u8 *data, u16 addr)
 {
@@ -486,6 +488,7 @@ static void qpnp_handle_sc_irq(struct work_struct *work)
 static int qpnp_hap_mod_enable(struct qpnp_hap *hap, int on)
 {
 	u8 val;
+	u8 data;
 	int rc, i;
 
 	val = hap->reg_en_ctl;
@@ -497,13 +500,13 @@ static int qpnp_hap_mod_enable(struct qpnp_hap *hap, int on)
 			unsigned long sleep_time =
 				QPNP_HAP_CYCLS * hap->wave_play_rate_us;
 
-			rc = qpnp_hap_read_reg(hap, &val,
+			rc = qpnp_hap_read_reg(hap, &data,
 				QPNP_HAP_STATUS(hap->base));
 
-			dev_dbg(&hap->spmi->dev, "HAP_STATUS=0x%x\n", val);
+			dev_dbg(&hap->spmi->dev, "HAP_STATUS=0x%x\n", data);
 
 			/* wait for QPNP_HAP_CYCLS cycles of play rate */
-			if (val & QPNP_HAP_STATUS_BUSY) {
+			if (data & QPNP_HAP_STATUS_BUSY) {
 				usleep_range(sleep_time, sleep_time + 1);
 				if (hap->play_mode == QPNP_HAP_DIRECT ||
 					hap->play_mode == QPNP_HAP_PWM)
@@ -822,6 +825,8 @@ static int qpnp_hap_sc_deb_config(struct qpnp_hap *hap)
 		temp = fls(hap->sc_deb_cycles) - 1;
 		reg |= temp - QPNP_HAP_SC_DEB_SUB;
 	}
+	else
+		reg = 0;
 	rc = qpnp_hap_write_reg(hap, &reg, QPNP_HAP_SC_DEB_REG(hap->base));
 	if (rc)
 		return rc;
@@ -1699,12 +1704,12 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int value)
 		value = (value > hap->timeout_ms ?
 				 hap->timeout_ms : value);
 		hap->state = 1;
-		hrtimer_start(&hap->hap_timer,
-			      ktime_set(value / 1000, (value % 1000) * 1000000),
-			      HRTIMER_MODE_REL);
+		hap->enable_time = value;
 	}
+/* shankai 2015-07-7 optimize speed of the vibrator response */
+	queue_work(vibqueue,&hap->work);
+	msleep(1);
 	mutex_unlock(&hap->lock);
-	schedule_work(&hap->work);
 }
 
 /* play pwm bytes */
@@ -1770,15 +1775,19 @@ static void qpnp_hap_worker(struct work_struct *work)
 	struct qpnp_hap *hap = container_of(work, struct qpnp_hap,
 					 work);
 	u8 val = 0x00;
-	int rc;
+	int rc, reg_en = 0;
 
-	if (hap->vcc_pon && hap->state && !hap->vcc_pon_enabled) {
-		rc = regulator_enable(hap->vcc_pon);
-		if (rc < 0)
-			pr_err("%s: could not enable vcc_pon regulator rc=%d\n",
-				 __func__, rc);
-		else
-			hap->vcc_pon_enabled = true;
+	if (hap->state) {
+		hrtimer_start(&hap->hap_timer,
+		    ktime_set(hap->enable_time / 1000,
+			(hap->enable_time % 1000) * 1000000), HRTIMER_MODE_REL);
+	}
+
+	if (hap->vcc_pon) {
+		reg_en = regulator_enable(hap->vcc_pon);
+		if (reg_en)
+			pr_err("%s: could not enable vcc_pon regulator\n",
+				 __func__);
 	}
 
 	/* Disable haptics module if the duration of short circuit
@@ -1793,13 +1802,11 @@ static void qpnp_hap_worker(struct work_struct *work)
 		qpnp_hap_set(hap, hap->state);
 	}
 
-	if (hap->vcc_pon && !hap->state && hap->vcc_pon_enabled) {
+	if (hap->vcc_pon && !reg_en && (hap->state == 0)) {
 		rc = regulator_disable(hap->vcc_pon);
 		if (rc)
-			pr_err("%s: could not disable vcc_pon regulator rc=%d\n",
-				 __func__, rc);
-		else
-			hap->vcc_pon_enabled = false;
+			pr_err("%s: could not disable vcc_pon regulator\n",
+				 __func__);
 	}
 }
 
@@ -1824,7 +1831,7 @@ static enum hrtimer_restart qpnp_hap_timer(struct hrtimer *timer)
 							 hap_timer);
 
 	hap->state = 0;
-	schedule_work(&hap->work);
+	queue_work(vibqueue, &hap->work);
 
 	return HRTIMER_NORESTART;
 }
@@ -2560,6 +2567,9 @@ static int qpnp_haptic_probe(struct spmi_device *spmi)
 
 	mutex_init(&hap->lock);
 	mutex_init(&hap->wf_lock);
+
+	vibqueue = create_singlethread_workqueue("vibthread");
+
 	INIT_WORK(&hap->work, qpnp_hap_worker);
 	INIT_DELAYED_WORK(&hap->sc_work, qpnp_handle_sc_irq);
 	init_completion(&hap->completion);

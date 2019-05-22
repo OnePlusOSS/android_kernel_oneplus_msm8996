@@ -19,7 +19,7 @@
 #include <linux/stringify.h>
 #include <linux/types.h>
 #include <linux/debugfs.h>
-
+#include "mdss_oem_config.h"
 #define KHZ_TO_HZ 1000
 
 /* panel id type */
@@ -280,6 +280,32 @@ enum mdss_intf_events {
 	MDSS_EVENT_PANEL_TIMING_SWITCH,
 	MDSS_EVENT_UPDATE_PARAMS,
 	MDSS_EVENT_MAX,
+	#if (defined MDSS_OEM_ACL_MODE)
+	MDSS_EVENT_PANEL_SET_ACL,
+	MDSS_EVENT_PANEL_GET_ACL,
+	#endif
+	#if (defined MDSS_OEM_HBM_MODE)
+	MDSS_EVENT_PANEL_SET_MAX_BRIGHTNESS,
+	MDSS_EVENT_PANEL_GET_MAX_BRIGHTNESS,
+	#endif
+	#if (defined MDSS_OEM_SRGB_MODE)
+	MDSS_EVENT_PANEL_SET_SRGB_MODE,
+	MDSS_EVENT_PANEL_GET_SRGB_MODE,
+	#endif
+	#if (defined MDSS_OEM_ADOBE_RGB_MODE)
+	MDSS_EVENT_PANEL_SET_ADOBE_RGB_MODE,
+	MDSS_EVENT_PANEL_GET_ADOBE_RGB_MODE,
+	#endif
+	#if (defined MDSS_OEM_DCI_P3_MODE)
+	MDSS_EVENT_PANEL_SET_DCI_P3_MODE,
+	MDSS_EVENT_PANEL_GET_DCI_P3_MODE,
+	#endif
+	#if (defined MDSS_OEM_Night_MODE)
+	MDSS_EVENT_PANEL_SET_NIGHT_MODE,
+	MDSS_EVENT_PANEL_GET_NIGHT_MODE,
+	MDSS_EVENT_PANEL_SET_ONEPLUS_MODE,
+	MDSS_EVENT_PANEL_GET_ONEPLUS_MODE,
+	#endif
 };
 
 struct lcd_panel_info {

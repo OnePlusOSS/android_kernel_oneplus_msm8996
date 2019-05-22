@@ -266,4 +266,6 @@ extern int cnss_common_register_tsf_captured_handler(struct device *dev,
 						     void *ctx);
 extern int cnss_common_unregister_tsf_captured_handler(struct device *dev,
 						       void *ctx);
+extern void cnss_set_fw_version(u32 version);
+
 #endif /* _NET_CNSS_H_ */

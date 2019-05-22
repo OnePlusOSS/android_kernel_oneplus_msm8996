@@ -128,6 +128,7 @@ static unsigned long sel_last_ino = SEL_INO_NEXT - 1;
 #define SEL_INO_MASK			0x00ffffff
 
 #define TMPBUFLEN	12
+
 static ssize_t sel_read_enforce(struct file *filp, char __user *buf,
 				size_t count, loff_t *ppos)
 {
@@ -511,8 +512,6 @@ static ssize_t sel_write_load(struct file *file, const char __user *buf,
 	mutex_lock(&sel_mutex);
 
 	length = task_has_security(current, SECURITY__LOAD_POLICY);
-	if (length)
-		goto out;
 
 	/* No partial writes. */
 	length = -EINVAL;

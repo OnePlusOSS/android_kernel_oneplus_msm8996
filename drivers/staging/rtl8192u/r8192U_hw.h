@@ -107,7 +107,6 @@ typedef enum _BaseBand_Config_Type{
 #define AC_PARAM_ECW_MIN_OFFSET		8
 #define AC_PARAM_AIFS_OFFSET		0
 
-//#endif
 enum _RTL8192Usb_HW {
 
 	PCIF			= 0x009, // PCI Function Register 0x0009h~0x000bh

@@ -3854,7 +3854,6 @@ typedef struct _ATOM_DPCD_INFO
 // Moved VESA_MEMORY_IN_64K_BLOCK definition to "AtomConfig.h" so that it can be redefined in design (SKU).
 //#ifndef VESA_MEMORY_IN_64K_BLOCK
 //#define VESA_MEMORY_IN_64K_BLOCK        0x100       //256*64K=16Mb (Max. VESA memory is 16Mb!)
-//#endif
 
 #define ATOM_EDID_RAW_DATASIZE          256         //In Bytes
 #define ATOM_HWICON_SURFACE_SIZE        4096        //In Bytes

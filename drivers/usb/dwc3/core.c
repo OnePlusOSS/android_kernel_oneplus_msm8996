@@ -44,7 +44,6 @@
 #include "io.h"
 
 #include "debug.h"
-
 /* -------------------------------------------------------------------------- */
 
 void dwc3_set_mode(struct dwc3 *dwc, u32 mode)

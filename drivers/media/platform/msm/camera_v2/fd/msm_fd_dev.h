@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -34,6 +34,18 @@
 #define MSM_FD_MAX_FACES_DETECTED 32
 /* Max number of regulators defined in device tree */
 #define MSM_FD_MAX_REGULATOR_NUM 3
+
+/* Conditional spin lock macro */
+#define MSM_FD_SPIN_LOCK(l, f) ({\
+	if (f) \
+		spin_lock(&l); \
+})
+
+/* Conditional spin unlock macro */
+#define MSM_FD_SPIN_UNLOCK(l, f) ({ \
+	if (f) \
+		spin_unlock(&l); \
+})
 
 /*
  * struct msm_fd_size - Structure contain FD size related values.
@@ -161,7 +173,6 @@ struct fd_ctx {
 	struct msm_fd_mem_pool mem_pool;
 	struct msm_fd_stats *stats;
 	struct msm_fd_buf_handle work_buf;
-	struct mutex lock;
 };
 
 /*

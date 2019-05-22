@@ -47,7 +47,6 @@
 #define BATTERY_VOLTAGE_MIN 3400
 #define BTM_8084_FREQ_MITIG_LIMIT 1958400
 #define MAX_CPU_NAME 10
-
 #define BCL_FETCH_DT_U32(_dev, _key, _search_str, _ret, _out, _exit) do { \
 		_key = _search_str; \
 		_ret = of_property_read_u32(_dev, _key, &_out); \
@@ -285,6 +284,10 @@ static void update_cpu_freq(void)
 static void power_supply_callback(struct power_supply *psy)
 {
 	static struct power_supply *bms_psy;
+/* taokai@bsp add for detecting usb status 2016.03.11 */
+	static struct power_supply *usb_psy;
+	int usb_state;
+	bool is_usb_present;
 	union power_supply_propval ret = {0,};
 	int battery_percentage;
 	enum bcl_threshold_state prev_soc_state;
@@ -293,7 +296,15 @@ static void power_supply_callback(struct power_supply *psy)
 		pr_debug("BCL is not enabled\n");
 		return;
 	}
-
+/* taokai@bsp add for detecting usb status 2016.03.11 */
+	if (!usb_psy)
+		usb_psy = power_supply_get_by_name("usb");
+	if (usb_psy) {
+		usb_state = usb_psy->get_property(usb_psy,
+				POWER_SUPPLY_PROP_PRESENT, &ret);
+		if (usb_state == 0)
+			is_usb_present = ret.intval;
+	}
 	if (!bms_psy)
 		bms_psy = power_supply_get_by_name("bms");
 	if (bms_psy) {
@@ -304,8 +315,13 @@ static void power_supply_callback(struct power_supply *psy)
 		pr_debug("Battery SOC reported:%d", battery_soc_val);
 		trace_bcl_sw_mitigation("SoC reported", battery_soc_val);
 		prev_soc_state = bcl_soc_state;
-		bcl_soc_state = (battery_soc_val <= soc_low_threshold) ?
-					BCL_LOW_THRESHOLD : BCL_HIGH_THRESHOLD;
+/* taokai@bsp add for detecting usb status 2016.03.11 */
+		pr_debug("is_usb_present:%d", is_usb_present);
+		if(is_usb_present)
+			bcl_soc_state = BCL_HIGH_THRESHOLD;
+		else
+			bcl_soc_state = (battery_soc_val <= soc_low_threshold) ?
+						BCL_LOW_THRESHOLD : BCL_HIGH_THRESHOLD;
 		if (bcl_soc_state == prev_soc_state)
 			return;
 		trace_bcl_sw_mitigation_event(

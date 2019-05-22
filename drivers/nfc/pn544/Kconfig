@@ -1,7 +1,6 @@
 config NFC_PN544
 	tristate "NXP PN544 NFC driver"
-	depends on NFC_HCI
-	select CRC_CCITT
+	depends on I2C
 	default n
 	---help---
 	  NXP PN544 core driver.

@@ -215,6 +215,9 @@ int sidtab_context_to_sid(struct sidtab *s,
 			goto unlock_out;
 		/* No SID exists for the context.  Allocate a new one. */
 		if (s->next_sid == UINT_MAX || s->shutdown) {
+		    printk(KERN_INFO
+		       "SELinux:  Failed to search context for %s, next_sid: %u, shutdown: %d\n",
+			       context->str, s->next_sid,s->shutdown);
 			ret = -ENOMEM;
 			goto unlock_out;
 		}

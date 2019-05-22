@@ -196,4 +196,9 @@ source "drivers/firmware/Kconfig"
 
 source "drivers/bif/Kconfig"
 
+# hefaxi@filesystem,2015/10/27,support param partion read/write
+source "drivers/param_read_write/Kconfig"
+#porting from 8994 oneplus2 by yangrujin@bsp for support oem trace,2015/10/27
+source "drivers/oneplus/Kconfig"
+
 endmenu

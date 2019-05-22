@@ -67,7 +67,10 @@ static int cpu_subsys_offline(struct device *dev)
 {
 	return cpu_down(dev->id);
 }
-
+static int cpu_subsys_offline_clash(struct device *dev)
+{
+	return (cpu_online(dev->id) == dev->offline);
+}
 void unregister_cpu(struct cpu *cpu)
 {
 	int logical_cpu = cpu->dev.id;
@@ -128,6 +131,7 @@ struct bus_type cpu_subsys = {
 #ifdef CONFIG_HOTPLUG_CPU
 	.online = cpu_subsys_online,
 	.offline = cpu_subsys_offline,
+	.offline_clash = cpu_subsys_offline_clash,
 #endif
 };
 EXPORT_SYMBOL_GPL(cpu_subsys);

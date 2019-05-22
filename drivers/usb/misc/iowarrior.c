@@ -112,7 +112,6 @@ static int usb_get_report(struct usb_device *dev,
 			       inter->desc.bInterfaceNumber, buf, size,
 			       GET_TIMEOUT*HZ);
 }
-//#endif
 
 #define USB_REQ_SET_REPORT 0x09
 

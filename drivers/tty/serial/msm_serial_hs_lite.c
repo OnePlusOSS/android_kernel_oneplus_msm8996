@@ -1687,6 +1687,20 @@ static struct msm_serial_hslite_platform_data
 	return pdata;
 }
 
+/* add by yangrujin@bsp 2015/10/22, add flag to check should disable uart or not */
+static bool have_console = false;
+
+static int __init parse_console_config(char *str)
+{
+    if(str != NULL){
+        have_console = true;
+    }
+
+    return 0;
+}
+
+early_param("console", parse_console_config);
+
 static atomic_t msm_serial_hsl_next_id = ATOMIC_INIT(0);
 
 static int msm_serial_hsl_probe(struct platform_device *pdev)
@@ -1699,6 +1713,10 @@ static int msm_serial_hsl_probe(struct platform_device *pdev)
 	const struct of_device_id *match;
 	u32 line;
 	int ret;
+	/*Anderson-Config_UARTPIN_as_GPIO+[*/
+	struct pinctrl *pinctrl = NULL;
+	struct pinctrl_state *set_state = NULL;
+	/*Anderson-Config_UARTPIN_as_GPIO+]*/
 
 	if (pdev->id == -1)
 		pdev->id = atomic_inc_return(&msm_serial_hsl_next_id) - 1;
@@ -1733,6 +1751,23 @@ static int msm_serial_hsl_probe(struct platform_device *pdev)
 	port->dev = &pdev->dev;
 	port->uartclk = 7372800;
 	msm_hsl_port = UART_TO_MSM(port);
+
+	/*Anderson-Config_UARTPIN_as_GPIO+[*/
+	pinctrl = devm_pinctrl_get(port->dev);
+	if(pinctrl != NULL){
+		if(have_console){
+			set_state = pinctrl_lookup_state(pinctrl, "uart_active");
+			if(set_state != NULL)
+				pinctrl_select_state(pinctrl, set_state);
+		}
+		else{
+			set_state = pinctrl_lookup_state(pinctrl, "uart_deactive");
+			if(set_state != NULL)
+				pinctrl_select_state(pinctrl, set_state);
+			return -EPROBE_DEFER;
+		}
+	}
+	/*Anderson-Config_UARTPIN_as_GPIO+]*/
 
 	msm_hsl_port->clk = clk_get(&pdev->dev, "core_clk");
 	if (unlikely(IS_ERR(msm_hsl_port->clk))) {
@@ -1974,7 +2009,15 @@ static int __init msm_serial_hsl_init(void)
 	if (unlikely(ret))
 		uart_unregister_driver(&msm_hsl_uart_driver);
 
-	pr_info("driver initialized\n");
+	/*Anderson-Config_UARTPIN_as_GPIO*[*/
+	if(!have_console){
+		platform_driver_unregister(&msm_hsl_platform_driver);
+		uart_unregister_driver(&msm_hsl_uart_driver);
+		pr_info("msm_hsl_platform_driver and msm_hsl_uart_driver unregister\n");
+	}
+	else
+		pr_info("driver initialized\n");
+	/*Anderson-Config_UARTPIN_as_GPIO*]*/
 
 	return ret;
 }

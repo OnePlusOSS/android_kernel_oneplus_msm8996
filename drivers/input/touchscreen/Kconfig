@@ -1135,19 +1135,22 @@ config TOUCHSCREEN_MAXIM_STI
 	  To compile this driver as a module, choose M here: the
 	  module will be called maxim_sti.
 
-source "drivers/input/touchscreen/gt9xx/Kconfig"
-source "drivers/input/touchscreen/focaltech_touch/Kconfig"
-
-config TOUCHSCREEN_HIMAX_CHIPSET
-	bool "Himax touchpanel CHIPSET"
-	depends on I2C
-	help
-	  Say Y here if you have a Himax CHIPSET touchscreen.
-	  HIMAX controllers are multi touch controllers which can
-	  report 10 touches at a time.
-
-          If unsure, say N.
-
-source "drivers/input/touchscreen/hxchipset/Kconfig"
-
+# yubin 2013-10-10 add begin for tp
+config TOUCHSCREEN_SYNAPTICS_S3508_I2C_RMI
+       tristate "Synaptics s3508 i2c touchscreen"
+       depends on I2C
+       help
+         This enables support for Synaptics s3508 RMI over I2C based touchscreens.
+# yubin 2013-10-10 add end for tp
+#endif
+config TOUCHSCREEN_SYNAPTICS_S1302_I2C_RMI
+       tristate "Synaptics s1302 i2c touchscreen"
+       depends on I2C
+       help
+         This enables support for Synaptics s1302 RMI over I2C based touch key.
+config TOUCHSCREEN_SYNAPTICS_S3320_I2C_RMI
+       tristate "Synaptics s3320 i2c touchscreen"
+       depends on I2C
+       help
+         This enables support for Synaptics s1302 RMI over I2C based touch key.
 endif

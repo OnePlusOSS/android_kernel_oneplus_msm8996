@@ -86,6 +86,7 @@ static DEFINE_CLK_VOTER(bimc_msmbus_clk, &bimc_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(bimc_msmbus_a_clk, &bimc_a_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(cnoc_msmbus_clk, &cnoc_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(cnoc_msmbus_a_clk, &cnoc_a_clk.c, LONG_MAX);
+static DEFINE_CLK_VOTER(uart_cnoc_msmbus_a_clk, &cnoc_a_clk.c, LONG_MAX);
 static DEFINE_CLK_BRANCH_VOTER(cxo_dwc3_clk, &cxo_clk_src.c);
 static DEFINE_CLK_BRANCH_VOTER(cxo_lpm_clk, &cxo_clk_src.c);
 static DEFINE_CLK_BRANCH_VOTER(cxo_otg_clk, &cxo_clk_src.c);
@@ -126,6 +127,7 @@ DEFINE_CLK_RPM_SMD_XO_BUFFER_PINCTRL(rf_clk2_pin, rf_clk2_pin_ao,
 static DEFINE_CLK_VOTER(scm_ce1_clk, &ce1_clk.c, 85710000);
 static DEFINE_CLK_VOTER(snoc_msmbus_clk, &snoc_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(snoc_msmbus_a_clk, &snoc_a_clk.c, LONG_MAX);
+static DEFINE_CLK_VOTER(uart_snoc_msmbus_a_clk, &snoc_a_clk.c, LONG_MAX);
 
 static unsigned int soft_vote_gpll0;
 
@@ -3354,6 +3356,7 @@ static struct clk_lookup msm_clocks_rpm_8996[] = {
 	CLK_LIST(ce1_a_clk),
 	CLK_LIST(cnoc_msmbus_clk),
 	CLK_LIST(cnoc_msmbus_a_clk),
+	CLK_LIST(uart_cnoc_msmbus_a_clk),
 	CLK_LIST(cxo_clk_src_ao),
 	CLK_LIST(cxo_dwc3_clk),
 	CLK_LIST(cxo_lpm_clk),
@@ -3394,6 +3397,7 @@ static struct clk_lookup msm_clocks_rpm_8996[] = {
 	CLK_LIST(scm_ce1_clk),
 	CLK_LIST(snoc_msmbus_clk),
 	CLK_LIST(snoc_msmbus_a_clk),
+	CLK_LIST(uart_snoc_msmbus_a_clk),
 	CLK_LIST(ce1_clk),
 	CLK_LIST(gcc_ce1_ahb_m_clk),
 	CLK_LIST(gcc_ce1_axi_m_clk),

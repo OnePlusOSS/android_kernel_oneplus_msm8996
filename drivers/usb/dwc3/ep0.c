@@ -36,6 +36,7 @@
 #include "gadget.h"
 #include "io.h"
 #include "debug.h"
+#include "../../power/oem_external_fg.h"
 
 
 static bool enable_dwc3_u1u2;
@@ -765,6 +766,19 @@ static int dwc3_ep0_set_isoch_delay(struct dwc3 *dwc, struct usb_ctrlrequest *ct
 
 	return 0;
 }
+static struct notify_usb_enumeration_status *usb_enumeration_status = NULL;
+
+void regsister_notify_usb_enumeration_status(struct notify_usb_enumeration_status *status)
+{
+	if (usb_enumeration_status) {
+		usb_enumeration_status = status;
+		pr_err("usb_enumeration_status %s multiple usb_enumeration_status called\n",
+				__func__);
+	} else {
+		usb_enumeration_status = status;
+	}
+}
+EXPORT_SYMBOL(regsister_notify_usb_enumeration_status);
 
 static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 {
@@ -784,6 +798,9 @@ static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 		ret = dwc3_ep0_handle_feature(dwc, ctrl, 1);
 		break;
 	case USB_REQ_SET_ADDRESS:
+		if(usb_enumeration_status&&usb_enumeration_status->notify_usb_enumeration) {
+			usb_enumeration_status->notify_usb_enumeration(true);
+		}
 		dwc3_trace(trace_dwc3_ep0, "USB_REQ_SET_ADDRESS\n");
 		ret = dwc3_ep0_set_address(dwc, ctrl);
 		break;

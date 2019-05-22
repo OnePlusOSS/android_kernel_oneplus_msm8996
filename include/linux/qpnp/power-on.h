@@ -58,7 +58,36 @@ enum pon_restart_reason {
 	PON_RESTART_REASON_DMVERITY_CORRUPTED	= 0x04,
 	PON_RESTART_REASON_DMVERITY_ENFORCE	= 0x05,
 	PON_RESTART_REASON_KEYS_CLEAR		= 0x06,
+	PON_RESTART_REASON_AGING		= 0x07, //shankai add for aging mode
+
+	/* add by yangrujin@bsp 2016/4/5, add op feature restart reason*/
+	PON_RESTART_REASON_REBOOT       = 0x10,
+	PON_RESTART_REASON_FACTORY      = 0x11,
+	PON_RESTART_REASON_WLAN         = 0x12,
+	PON_RESTART_REASON_RF           = 0x13,
+	PON_RESTART_REASON_MOS          = 0x14,
+	PON_RESTART_REASON_KERNEL       = 0x15,
+	PON_RESTART_REASON_ANDROID      = 0x16,
+	PON_RESTART_REASON_MODEM        = 0x17,
 };
+
+/* add by yangrujin@bsp 2015/10/27, define reboot mode magic*/
+#define FASTBOOT_MODE          0x77665500
+#define RECOVERY_MODE          0x77665502
+//#define AGING_MODE          0x77665510   //shankai add for aging mode
+#define ALARM_BOOT             0x77665503
+//#define DM_VERITY_LOGGING    0x77665508
+//#define DM_VERITY_ENFORCING  0x77665509
+//#define DM_VERITY_KEYSCLEAR  0x7766550A
+#define FACTORY_MODE           0x77665504
+#define WLAN_MODE              0x77665505
+#define RF_MODE                0x77665506
+#define MOS_MODE               0x77665507
+#define KERNEL_MODE            0x7766550d
+#define ANDROID_MODE           0x7766550c
+#define MODEM_MODE             0x7766550b
+#define NORMAL_MODE            0xFEFEFEFE
+#define INVALID_MODE           0xFFFFFFFF
 
 #ifdef CONFIG_QPNP_POWER_ON
 int qpnp_pon_system_pwr_off(enum pon_power_off_type type);

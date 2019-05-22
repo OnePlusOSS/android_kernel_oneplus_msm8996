@@ -34,6 +34,10 @@
 #include "sched.h"
 #include <trace/events/sched.h>
 
+#include <../drivers/oneplus/coretech/opchain/opchain_helper.h>
+
+#define opc_claim_bit_test(claim, cpu) (claim & ((1 << cpu) | (1 << (cpu + num_present_cpus()))))
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
@@ -2386,6 +2390,14 @@ unsigned int __read_mostly sysctl_sched_prefer_sync_wakee_to_waker;
  */
 unsigned int __read_mostly sched_spill_load;
 unsigned int __read_mostly sysctl_sched_spill_load_pct = 100;
+/*
+ * If a CPU has only two runnable tasks and the currently running
+ * task is a small task, prevent the other task migrating to another
+ * CPU in the same cluster. This policy reduces excessive intra-cluster
+ * migrations.
+ */
+static unsigned int __read_mostly sched_small_task_load;
+static unsigned int __read_mostly sched_small_task_load_pct = 5;
 
 /*
  * frequency aggregation threshold
@@ -2511,6 +2523,10 @@ void set_hmp_defaults(void)
 
 	sched_big_waker_task_load =
 		div64_u64((u64)sysctl_sched_big_waker_task_load_pct *
+			  (u64)sched_ravg_window, 100);
+
+	sched_small_task_load =
+		div64_u64((u64)sched_small_task_load_pct *
 			  (u64)sched_ravg_window, 100);
 }
 
@@ -2796,6 +2812,9 @@ struct cpu_select_env {
 	DECLARE_BITMAP(backup_list, NR_CPUS);
 	u64 task_load;
 	u64 cpu_load;
+	u64 cpu_cravg;
+	int op_path;
+	unsigned int claims;
 };
 
 struct cluster_cpu_stats {
@@ -2993,12 +3012,17 @@ struct cpu_select_env *env, struct cluster_cpu_stats *stats)
 		next = next_candidate(env->backup_list, 0, num_clusters);
 		__clear_bit(next->id, env->backup_list);
 		for_each_cpu_and(i, &env->p->cpus_allowed, &next->cpus) {
-			trace_sched_cpu_load_wakeup(cpu_rq(i), idle_cpu(i),
-			sched_irqload(i), power_cost(i, task_load(env->p) +
-					cpu_cravg_sync(i, env->sync)), 0);
+		if (env->claims)
+			env->cpu_cravg = opc_cpu_cravg_sync(i, env->sync, env->op_path);
+		else
+			env->cpu_cravg = cpu_cravg_sync(i, env->sync);
 
-			update_spare_capacity(stats, env, i, next->capacity,
-					  cpu_load_sync(i, env->sync));
+		trace_sched_cpu_load_wakeup(cpu_rq(i), idle_cpu(i),
+		sched_irqload(i), power_cost(i, task_load(env->p) +
+					env->cpu_cravg), 0);
+
+		update_spare_capacity(stats, env, i, next->capacity,
+			scale_load_to_cpu(env->cpu_cravg, i));
 		}
 	}
 }
@@ -3135,10 +3159,11 @@ static void __update_cluster_stats(int cpu, struct cluster_cpu_stats *stats,
 static void update_cluster_stats(int cpu, struct cluster_cpu_stats *stats,
 					 struct cpu_select_env *env)
 {
-	int cpu_cost;
+	unsigned int cpu_cost;
+	u64 load_t;
 
-	cpu_cost = power_cost(cpu, task_load(env->p) +
-				cpu_cravg_sync(cpu, env->sync));
+	load_t = task_load(env->p) + env->cpu_cravg;
+	cpu_cost = power_cost(cpu, load_t);
 	if (cpu_cost <= stats->min_cost)
 		__update_cluster_stats(cpu, stats, env, cpu_cost);
 }
@@ -3154,12 +3179,11 @@ static void find_best_cpu_in_cluster(struct sched_cluster *c,
 		cpumask_clear_cpu(env->prev_cpu, &search_cpus);
 
 	for_each_cpu(i, &search_cpus) {
-		env->cpu_load = cpu_load_sync(i, env->sync);
-
-		trace_sched_cpu_load_wakeup(cpu_rq(i), idle_cpu(i),
-			sched_irqload(i),
-			power_cost(i, task_load(env->p) +
-					cpu_cravg_sync(i, env->sync)), 0);
+		if (env->claims)
+			env->cpu_cravg = opc_cpu_cravg_sync(i, env->sync, env->op_path);
+		else
+			env->cpu_cravg = cpu_cravg_sync(i, env->sync);
+		env->cpu_load = scale_load_to_cpu(env->cpu_cravg, i);
 
 		if (unlikely(!cpu_active(i)) || skip_cpu(i, env))
 			continue;
@@ -3210,9 +3234,11 @@ bias_to_prev_cpu(struct cpu_select_env *env, struct cluster_cpu_stats *stats)
 	struct task_struct *task = env->p;
 	struct sched_cluster *cluster;
 
-	if (env->boost || env->reason || env->need_idle ||
-				!task->ravg.mark_start ||
-				!sched_short_sleep_task_threshold)
+    int normal_path = env->op_path == OP_PATH_NORMAL;
+
+    if (env->boost || env->reason || env->need_idle ||
+                !task->ravg.mark_start ||
+                (normal_path && !sched_short_sleep_task_threshold))
 		return false;
 
 	prev_cpu = env->prev_cpu;
@@ -3220,6 +3246,7 @@ bias_to_prev_cpu(struct cpu_select_env *env, struct cluster_cpu_stats *stats)
 					unlikely(!cpu_active(prev_cpu)))
 		return false;
 
+    if (normal_path)
 	if (task->ravg.mark_start - task->last_cpu_selected_ts >=
 				sched_long_cpu_selection_threshold)
 		return false;
@@ -3230,6 +3257,7 @@ bias_to_prev_cpu(struct cpu_select_env *env, struct cluster_cpu_stats *stats)
 	 * p->last_switch_out_ts can denote last preemption time as well as
 	 * last sleep time.
 	 */
+	if (normal_path)
 	if (task->ravg.mark_start - task->last_switch_out_ts >=
 					sched_short_sleep_task_threshold)
 		return false;
@@ -3244,12 +3272,17 @@ bias_to_prev_cpu(struct cpu_select_env *env, struct cluster_cpu_stats *stats)
 		return false;
 	}
 
-	env->cpu_load = cpu_load_sync(prev_cpu, env->sync);
+	if (env->claims)
+		env->cpu_load = scale_load_to_cpu(opc_cpu_cravg_sync(prev_cpu, env->sync, env->op_path), prev_cpu);
+	else
+		env->cpu_load = cpu_load_sync(prev_cpu, env->sync);
+
 	if (sched_cpu_high_irqload(prev_cpu) ||
 			spill_threshold_crossed(env, cpu_rq(prev_cpu))) {
-		update_spare_capacity(stats, env, prev_cpu,
+		if (normal_path) {
+			update_spare_capacity(stats, env, prev_cpu,
 				cluster->capacity, env->cpu_load);
-		env->ignore_prev_cpu = 1;
+		}
 		return false;
 	}
 
@@ -3296,12 +3329,20 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 		.prev_cpu		= target,
 		.ignore_prev_cpu	= 0,
 		.rtg			= NULL,
+		.op_path = opc_select_path(current, p, target),
+		.claims = opc_get_claims(),
+
 	};
 
 	bitmap_copy(env.candidate_list, all_cluster_ids, NR_CPUS);
 	bitmap_zero(env.backup_list, NR_CPUS);
 
 	init_cluster_cpu_stats(&stats);
+
+	if (env.op_path >= 0 && env.op_path != target) {
+		env.prev_cpu = env.op_path;
+		target = env.op_path;
+	}
 
 	rcu_read_lock();
 
@@ -3328,7 +3369,7 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 				bitmap_zero(env.candidate_list, NR_CPUS);
 				__set_bit(cluster->id, env.candidate_list);
 			}
-		} else if (bias_to_prev_cpu(&env, &stats)) {
+        } else if (env.op_path != OP_PATH_CLAIM && bias_to_prev_cpu(&env, &stats)) {
 			fast_path = true;
 			goto out;
 		}
@@ -6002,6 +6043,8 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
 
+        opc_task_switch(true, cpu_of(rq), p, 0);
+
 	for_each_sched_entity(se) {
 		if (se->on_rq)
 			break;
@@ -6055,6 +6098,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int task_sleep = flags & DEQUEUE_SLEEP;
 
+	opc_task_switch(false, cpu_of(rq), p, rq->clock);
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
 		dequeue_entity(cfs_rq, se, flags);
@@ -7385,6 +7429,11 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 
 	/* Record that we found atleast one task that could run on dst_cpu */
 	env->flags &= ~LBF_ALL_PINNED;
+	if (same_cluster(env->dst_cpu, env->src_cpu)) {
+		if (env->src_rq->nr_running <= 2 &&
+			task_load(env->src_rq->curr) < sched_small_task_load)
+			return 0;
+		}
 
 	if (cpu_capacity(env->dst_cpu) > cpu_capacity(env->src_cpu) &&
 		nr_big_tasks(env->src_rq) && !is_big_task(p))
@@ -7507,11 +7556,26 @@ static int detach_tasks(struct lb_env *env)
 	unsigned long load;
 	int detached = 0;
 	int orig_loop = env->loop;
+	int nr_to_move = 0;
+	bool opc_not_migrate, is_utf;
+	unsigned int claims = opc_get_claims();
+	int src_claim = 0;
 
 	lockdep_assert_held(&env->src_rq->lock);
 
 	if (env->imbalance <= 0)
 		return 0;
+	if (claims) {
+		src_claim = opc_get_claim_on_cpu(env->src_cpu);
+		if (src_claim){
+			if (cpu_capacity(env->dst_cpu) > cpu_capacity(env->src_cpu) ||
+			    env->dst_cpu == num_present_cpus() - 1) {
+				nr_to_move = (src_claim + 1) >> 1;
+			}
+			else
+				nr_to_move = src_claim >> 1;
+		}
+	}
 
 	if (cpu_capacity(env->dst_cpu) < cpu_capacity(env->src_cpu) &&
 							!sched_boost())
@@ -7535,7 +7599,19 @@ redo:
 			break;
 		}
 
-		if (!can_migrate_task(p, env))
+		if (src_claim) {
+			is_utf = is_opc_task(p, UT_FORE);
+			if (is_utf && !nr_to_move)
+				opc_not_migrate = true;
+			else if (opc_not_migrate)
+				opc_not_migrate = false;
+		} else {
+			if (is_utf)
+				is_utf = false;
+			if (opc_not_migrate)
+				opc_not_migrate = false;
+		}
+		if (!can_migrate_task(p, env) || opc_not_migrate)
 			goto next;
 
 		load = task_h_load(p);
@@ -7543,8 +7619,12 @@ redo:
 		if (sched_feat(LB_MIN) && load < 16 && !env->sd->nr_balance_failed)
 			goto next;
 
-		if ((load / 2) > env->imbalance)
+		if ((load / 2) > env->imbalance && !claims)
 			goto next;
+		if (is_utf) {
+			src_claim--;
+			nr_to_move--;
+		}
 
 		detach_task(p, env);
 		list_add(&p->se.group_node, &env->tasks);
@@ -7581,6 +7661,7 @@ next:
 		env->flags &= ~(LBF_IGNORE_BIG_TASKS |
 				LBF_IGNORE_PREFERRED_CLUSTER_TASKS);
 		env->loop = orig_loop;
+		src_claim = 0;
 		goto redo;
 	}
 

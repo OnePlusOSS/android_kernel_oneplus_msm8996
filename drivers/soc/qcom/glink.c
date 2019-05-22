@@ -375,6 +375,9 @@ static struct channel_ctx *ch_name_to_ch_ctx_create(
 static void ch_push_remote_rx_intent(struct channel_ctx *ctx, size_t size,
 					uint32_t riid, void *cookie);
 
+static void oem_ch_push_remote_rx_intent(struct channel_ctx *ctx, size_t size,
+							uint32_t riid, bool is_atomic);
+
 static int ch_pop_remote_rx_intent(struct channel_ctx *ctx, size_t size,
 			uint32_t *riid_ptr, size_t *intent_size, void **cookie);
 
@@ -1270,6 +1273,53 @@ void ch_push_remote_rx_intent(struct channel_ctx *ctx, size_t size,
 			intent->id,
 			intent->intent_size);
 }
+
+
+void oem_ch_push_remote_rx_intent(struct channel_ctx *ctx, size_t size,
+		uint32_t riid, bool is_atomic)
+{
+	struct glink_core_rx_intent *intent;
+	unsigned long flags;
+	gfp_t gfp_flag;
+
+	if (GLINK_MAX_PKT_SIZE < size) {
+		GLINK_ERR_CH(ctx, "%s: R[%u]:%zu Invalid size.\n", __func__,
+				riid, size);
+		return;
+	}
+
+	if (ch_check_duplicate_riid(ctx, riid)) {
+		GLINK_ERR_CH(ctx, "%s: R[%d]:%zu Duplicate RIID found\n",
+				__func__, riid, size);
+		return;
+	}
+
+	gfp_flag = ((ctx->transport_ptr->capabilities & GCAP_AUTO_QUEUE_RX_INT) || is_atomic) ?
+							GFP_ATOMIC : GFP_KERNEL;
+	intent = kzalloc(sizeof(struct glink_core_rx_intent), gfp_flag);
+	if (!intent) {
+		GLINK_ERR_CH(ctx,
+			"%s: R[%u]:%zu Memory allocation for intent failed\n",
+			__func__, riid, size);
+		return;
+	}
+	intent->id = riid;
+	intent->intent_size = size;
+
+	spin_lock_irqsave(&ctx->rmt_rx_intent_lst_lock_lhc2, flags);
+	list_add_tail(&intent->list, &ctx->rmt_rx_intent_list);
+
+	complete_all(&ctx->int_req_complete);
+	if (ctx->notify_remote_rx_intent)
+		ctx->notify_remote_rx_intent(ctx, ctx->user_priv, size);
+	spin_unlock_irqrestore(&ctx->rmt_rx_intent_lst_lock_lhc2, flags);
+
+	GLINK_DBG_CH(ctx, "%s: R[%u]:%zu Pushed remote intent\n", __func__,
+			intent->id,
+			intent->intent_size);
+}
+
+
 
 /**
  * ch_push_local_rx_intent() - Create an rx_intent
@@ -3004,9 +3054,9 @@ static int glink_tx_common(void *handle, void *pkt_priv,
 				is_atomic ? GFP_ATOMIC : GFP_KERNEL);
 	if (!tx_info) {
 		GLINK_ERR_CH(ctx, "%s: No memory for allocation\n", __func__);
-		ch_push_remote_rx_intent(ctx, intent_size, riid, cookie);
-		ret = -ENOMEM;
-		goto glink_tx_common_err;
+		oem_ch_push_remote_rx_intent(ctx, intent_size, riid, is_atomic);
+		rwref_read_put(&ctx->ch_state_lhb2);
+		return -ENOMEM;
 	}
 	rwref_lock_init(&tx_info->pkt_ref, glink_tx_pkt_release);
 	INIT_LIST_HEAD(&tx_info->list_done);

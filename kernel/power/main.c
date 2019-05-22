@@ -15,10 +15,22 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
+#include <linux/pm_qos.h>
+#include <linux/cpufreq.h>
 
 #include "power.h"
 
 DEFINE_MUTEX(pm_mutex);
+
+#define LITTLE_CLUSTER_CPU_NUMBER 0
+#define BIG_CLUSTER_CPU_NUMBER 2
+#define RESUME_BOOST_LITTLE_CPU_QOS_FREQ 1593600
+#define RESUME_BOOST_BIG_CPU_QOS_FREQ    2073600
+
+static struct pm_qos_request resumeboost_little_cpu_qos;
+static struct pm_qos_request resumeboost_big_cpu_qos;
+extern int get_resume_wakeup_flag(void);
+extern int get_qpnp_kpdpwr_resume_wakeup_flag(void);
 
 #ifdef CONFIG_PM_SLEEP
 
@@ -77,6 +89,55 @@ static ssize_t pm_async_store(struct kobject *kobj, struct kobj_attribute *attr,
 }
 
 power_attr(pm_async);
+
+/* add by yangrujin@bsp 2015/8/17, add /sys/power/app_boot file to know boot mode */
+
+static char androidboot_mode[20] = "\0";
+static int __init parse_androidboot_mode(char *str)
+{
+    if(str == NULL){
+        return -1;
+    }
+
+    snprintf(androidboot_mode, 20, "%s", str);
+    //printk(KERN_ERR "%s:  str %s\n", __func__, str);
+    return 0;
+}
+
+early_param("androidboot.mode", parse_androidboot_mode);
+
+char * get_androidboot_mode(void)
+{
+    return androidboot_mode;
+}
+EXPORT_SYMBOL_GPL(get_androidboot_mode);
+
+static ssize_t app_boot_show(struct kobject *kobj, struct kobj_attribute *attr,
+			     char *buf)
+{
+#if 1
+	return sprintf(buf, "%s", get_androidboot_mode());
+#else
+    if (reboot_reason == 0x77665501)
+        return sprintf(buf, "reboot");
+    else if (reboot_reason == 0x7766550a)
+        return sprintf(buf, "kernel");
+    else if (reboot_reason == 0x7766550b)
+        return sprintf(buf, "modem");
+    else if (reboot_reason == 0x7766550c)
+        return sprintf(buf, "android");
+    else
+        return sprintf(buf, "normal");
+#endif
+}
+
+static ssize_t app_boot_store(struct kobject *kobj, struct kobj_attribute *attr,
+			   const char *buf, size_t n)
+{
+	return 0;
+}
+
+power_attr(app_boot);
 
 #ifdef CONFIG_PM_DEBUG
 int pm_test_level = TEST_NONE;
@@ -342,6 +403,30 @@ static suspend_state_t decode_state(const char *buf, size_t n)
 	return PM_SUSPEND_ON;
 }
 
+void resumeboost_fn(void)
+{
+        struct cpufreq_policy *policy;
+
+	if(get_resume_wakeup_flag() || get_qpnp_kpdpwr_resume_wakeup_flag()) {
+		/* Fetch little cpu policy and drive the CPU towards target frequency */
+                policy = cpufreq_cpu_get(LITTLE_CLUSTER_CPU_NUMBER);
+                if (policy)  {
+                        cpufreq_driver_target(policy, RESUME_BOOST_LITTLE_CPU_QOS_FREQ, CPUFREQ_RELATION_H);
+                        pm_qos_update_request_timeout(&resumeboost_little_cpu_qos, MAX_CPUFREQ-1, 1000000);
+                } else
+			return;
+                cpufreq_cpu_put(policy);
+
+		/* Fetch big cpu policy and drive big cpu towards target frequency */
+		policy = cpufreq_cpu_get(BIG_CLUSTER_CPU_NUMBER);
+		if (policy)  {
+			cpufreq_driver_target(policy, RESUME_BOOST_BIG_CPU_QOS_FREQ, CPUFREQ_RELATION_H);
+			pm_qos_update_request_timeout(&resumeboost_big_cpu_qos, MAX_CPUFREQ-4, 1000000);
+		} else
+			return;
+		cpufreq_cpu_put(policy);
+	}
+}
 static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 			   const char *buf, size_t n)
 {
@@ -367,6 +452,7 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 
  out:
 	pm_autosleep_unlock();
+	resumeboost_fn();
 	return error ? error : n;
 }
 
@@ -616,6 +702,8 @@ static struct attribute * g[] = {
 #ifdef CONFIG_FREEZER
 	&pm_freeze_timeout_attr.attr,
 #endif
+/* add by yangrujin@bsp 2015/8/17, add /sys/power/app_boot file to know boot mode */
+	&app_boot_attr.attr,
 	NULL,
 };
 
@@ -651,3 +739,12 @@ static int __init pm_init(void)
 }
 
 core_initcall(pm_init);
+
+static int __init init_pm_qos(void)
+{
+        pm_qos_add_request(&resumeboost_little_cpu_qos, PM_QOS_C0_CPUFREQ_MIN, 0);
+        pm_qos_add_request(&resumeboost_big_cpu_qos, PM_QOS_C1_CPUFREQ_MIN, 0);
+
+        return 0;
+}
+late_initcall(init_pm_qos);

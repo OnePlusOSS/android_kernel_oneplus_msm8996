@@ -2415,8 +2415,7 @@ static void rtl8192_read_eeprom_info(struct net_device *dev)
 			else
 				tmpValue = 0x10;
 			priv->EEPROMTxPowerLevelOFDM24G[2] = (u8)tmpValue;
-		}//endif EEPROM_Def_Ver == 1
-
+		}
 		//update HAL variables
 		//
 		for (i = 0; i < 14; i++) {

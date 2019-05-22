@@ -26,7 +26,12 @@
 #include <linux/usb/msm_hsusb.h>
 
 #include <soc/qcom/scm.h>
-
+#define PHY_EYE_DIAGRAM_DEBUG
+#ifdef PHY_EYE_DIAGRAM_DEBUG
+#include <linux/proc_fs.h>
+static u32 buf_reg[5]={0x0,0x0,0x03,0x83,0xc7};
+static u32 enable_debug_proc = 0;
+#endif
 /* TCSR_PHY_CLK_SCHEME_SEL bit mask */
 #define PHY_CLK_SCHEME_SEL BIT(0)
 
@@ -725,6 +730,19 @@ static void qusb_phy_write_seq(void __iomem *base, u32 *seq, int cnt,
 		if (delay)
 			usleep_range(delay, (delay + 2000));
 	}
+#ifdef PHY_EYE_DIAGRAM_DEBUG
+	if(1 == enable_debug_proc){
+		writel_relaxed(buf_reg[1], base + QUSB2PHY_PORT_TUNE1);
+		writel_relaxed(buf_reg[2], base + QUSB2PHY_PORT_TUNE2);
+		writel_relaxed(buf_reg[3], base + QUSB2PHY_PORT_TUNE3);
+		writel_relaxed(buf_reg[4], base + QUSB2PHY_PORT_TUNE4);
+		for (i = 0; i < cnt; i = i+2) {
+		usleep_range(100, 100);
+		pr_err("before 0x%x to 0x%x after:0x%x\n", seq[i], seq[i+1],readl_relaxed(base + seq[i+1]));
+
+		}
+	}
+#endif
 }
 
 static int qusb_phy_init(struct usb_phy *phy)
@@ -1048,7 +1066,11 @@ static int qusb_phy_set_suspend(struct usb_phy *phy, int suspend)
 			/* Make sure that above write is completed */
 			wmb();
 
-			qusb_phy_enable_clocks(qphy, false);
+			/* Do not disable clocks if there is vote for it */
+			if (!qphy->rm_pulldown)
+				qusb_phy_enable_clocks(qphy, false);
+			else
+				dev_dbg(phy->dev, "race with rm_pulldown. Keep clocks ON\n");
 			qusb_phy_update_tcsr_level_shifter(qphy, 0x0);
 			/* Do not disable power rails if there is vote for it */
 			if (!qphy->rm_pulldown)
@@ -1109,6 +1131,43 @@ static int qusb_phy_notify_disconnect(struct usb_phy *phy,
 	return 0;
 }
 
+#ifdef PHY_EYE_DIAGRAM_DEBUG
+static ssize_t usbreg_debug_write(struct file *file, const char *buffer, size_t count, loff_t *ppos)
+{
+	int ret;
+	ret = sscanf(buffer,"%x %x %x %x %x",&buf_reg[0],&buf_reg[1],&buf_reg[2],&buf_reg[3],&buf_reg[4]);
+	enable_debug_proc = buf_reg[0];
+	return count;
+}
+static int usbreg_debug_show(struct seq_file *seq, void *offset)
+{
+	seq_printf(seq, "enable_debug:0x%x\n,QUSB2PHY_TUNE1:0x%x\n,QUSB2PHY_TUNE2:0x%x\n,QUSB2PHY_TUNE3:0x%x\n,QUSB2PHY_TUNE4:0x%x\n",\
+	buf_reg[0],buf_reg[1],buf_reg[2],buf_reg[3],buf_reg[4]);
+	return 0 ;
+}
+
+static int usbreg_debug_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, usbreg_debug_show, inode->i_private);
+}
+
+const struct file_operations proc_usbreg_debug =
+{
+    .owner      = THIS_MODULE,
+    .open       = usbreg_debug_open,
+    .read       = seq_read,
+    .write      = usbreg_debug_write,
+    .llseek     = seq_lseek,
+    .release    = single_release,
+};
+static int creat_usb_proc(void)
+{
+	struct proc_dir_entry *proc_entry=0;
+	struct proc_dir_entry *procdir = proc_mkdir( "usbreg_debug", NULL );
+	proc_entry = proc_create_data("usbreg_rw", 0666, procdir,&proc_usbreg_debug,NULL);
+	return 0;
+}
+#endif
 static int qusb_phy_probe(struct platform_device *pdev)
 {
 	struct qusb_phy *qphy;
@@ -1393,6 +1452,9 @@ static int qusb_phy_probe(struct platform_device *pdev)
 		clk_reset(qphy->phy_reset, CLK_RESET_ASSERT);
 
 	ret = usb_add_phy_dev(&qphy->phy);
+#ifdef PHY_EYE_DIAGRAM_DEBUG
+	creat_usb_proc();
+#endif
 	return ret;
 }
 

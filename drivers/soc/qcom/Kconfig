@@ -948,6 +948,11 @@ config WCD_DSP_GLINK
 	   between MSM and WCD DSP over glink transport protocol. This driver
 	   provides read and write interface via char device.
 
+config RF_CABLE_DETECT
+	bool "detect RF cable connection"
+	help
+	  detect RF cable connection for different RF configuration
+
 source "drivers/soc/qcom/memshare/Kconfig"
 
 endif # ARCH_MSM

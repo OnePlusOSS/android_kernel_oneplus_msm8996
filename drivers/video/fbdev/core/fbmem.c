@@ -32,8 +32,19 @@
 #include <linux/device.h>
 #include <linux/efi.h>
 #include <linux/fb.h>
+#include <linux/pm_qos.h>
+#include <linux/cpufreq.h>
+
+#include <linux/sched.h>
+
 
 #include <asm/fb.h>
+
+#define LCDSPEEDUP_BIG_CPU_QOS_FREQ    2073600
+#define LCD_QOS_TIMEOUT 250000
+
+static struct pm_qos_request lcdspeedup_little_cpu_qos;
+static struct pm_qos_request lcdspeedup_big_cpu_qos;
 
 
     /*
@@ -1052,6 +1063,24 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 }
 EXPORT_SYMBOL(fb_set_var);
 
+/*ykl add debug log*/
+void debug_blank(int blank,int start)
+{
+	if(start)
+	{
+		if(blank == FB_BLANK_UNBLANK)
+			printk("blank on start\n");
+		else if(blank == FB_BLANK_POWERDOWN)
+			printk("blank off start\n");
+	}else{
+		if(blank == FB_BLANK_UNBLANK)
+			printk("blank on end\n");
+		else if(blank == FB_BLANK_POWERDOWN)
+			printk("blank off end\n");
+	}
+}
+
+
 int
 fb_blank(struct fb_info *info, int blank)
 {	
@@ -1063,6 +1092,10 @@ fb_blank(struct fb_info *info, int blank)
 
 	event.info = info;
 	event.data = &blank;
+
+	/*ykl add debug log*/
+			debug_blank(blank,1);
+
 
 	early_ret = fb_notifier_call_chain(FB_EARLY_EVENT_BLANK, &event);
 
@@ -1080,6 +1113,13 @@ fb_blank(struct fb_info *info, int blank)
 			fb_notifier_call_chain(FB_R_EARLY_EVENT_BLANK, &event);
 	}
 
+	/*ykl add debug log*/
+			debug_blank(blank,0);
+	//Wujialong 20160314 enable sched_boost when wakeup and disable sched_boost when screen on
+	if(blank==FB_BLANK_UNBLANK)
+	{
+		sched_set_boost(0);
+	}
  	return ret;
 }
 EXPORT_SYMBOL(fb_blank);
@@ -1919,3 +1959,69 @@ int fb_new_modelist(struct fb_info *info)
 }
 
 MODULE_LICENSE("GPL");
+
+static int fb_state_change(struct notifier_block *nb,
+                unsigned long val, void *data)
+{
+        struct fb_event *evdata = data;
+        struct fb_info *info = evdata->info;
+        unsigned int blank;
+
+        if (val != FB_EVENT_BLANK &&
+                val != FB_EARLY_EVENT_BLANK)
+                return NOTIFY_OK;
+
+        if (info->node)
+                return NOTIFY_OK;
+
+        blank = *(int *)evdata->data;
+
+        switch (blank) {
+        case FB_BLANK_POWERDOWN:
+                if (val == FB_EARLY_EVENT_BLANK) {
+                        pm_qos_update_request(&lcdspeedup_little_cpu_qos, MIN_CPUFREQ);
+                        pm_qos_update_request(&lcdspeedup_big_cpu_qos, MIN_CPUFREQ);
+                        /* add print actvie ws */
+                        pr_debug("::: LCD start off :::\n");
+                }
+                break;
+        case FB_BLANK_UNBLANK:
+                if (val == FB_EARLY_EVENT_BLANK) {
+                        struct cpufreq_policy *policy;
+                        /* Speed up LCD on */
+                        /* Fetch little cpu policy and drive the CPU towards target frequency */
+                        pm_qos_update_request_timeout(&lcdspeedup_little_cpu_qos, MAX_CPUFREQ-1, LCD_QOS_TIMEOUT);
+                        /* Fetch big cpu policy and drive big cpu towards target frequency */
+                        policy = cpufreq_cpu_get(cluster1_first_cpu);
+                        if (policy)  {
+                                cpufreq_driver_target(policy, LCDSPEEDUP_BIG_CPU_QOS_FREQ, CPUFREQ_RELATION_H);
+                                pm_qos_update_request_timeout(&lcdspeedup_big_cpu_qos, MAX_CPUFREQ-4, LCD_QOS_TIMEOUT);
+                        } else
+                                return NOTIFY_OK;
+                        cpufreq_cpu_put(policy);
+                }
+
+                if (val == FB_EVENT_BLANK)
+			pr_debug("::: LCD is on :::\n");
+		break;
+        default:
+                break;
+        }
+
+        return NOTIFY_OK;
+}
+
+static struct notifier_block fb_block = {
+        .notifier_call = fb_state_change,
+        .priority = 1,
+};
+
+static int __init lcdscreen_speedup_init_pm_qos(void)
+{
+        fb_register_client(&fb_block);
+        pm_qos_add_request(&lcdspeedup_little_cpu_qos, PM_QOS_C0_CPUFREQ_MIN, MIN_CPUFREQ);
+        pm_qos_add_request(&lcdspeedup_big_cpu_qos, PM_QOS_C1_CPUFREQ_MIN, MIN_CPUFREQ);
+
+        return 0;
+}
+late_initcall(lcdscreen_speedup_init_pm_qos);

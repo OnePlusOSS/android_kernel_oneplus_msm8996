@@ -16,6 +16,8 @@
 #include <linux/delay.h>
 #include <linux/mfd/wcd9335/registers.h>
 #include <sound/soc.h>
+/*zhiguang.su@MultiMedia.AudioDrv, 2015-11-09, add for debug*/
+#include <sound/sounddebug.h>
 #include "wcd9xxx-resmgr-v2.h"
 
 #define WCD9XXX_RCO_CALIBRATION_DELAY_INC_US 5000

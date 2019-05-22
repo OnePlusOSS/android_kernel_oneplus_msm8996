@@ -18,7 +18,10 @@
 
 #define SET_DELAY (2 * HZ)
 #define PROC_AWAKE_ID 12 /* 12th bit */
-static int slst_gpio_base_id;
+/*qiuchangping@BSP 2016-05-19
+  add for when sync filesystem take long time and AP hold sensor
+  sometime sensor data will block the sleep process alway*/
+int slst_gpio_base_id;
 
 /**
  * sleepstate_pm_notifier() - PM notifier callback function.
@@ -34,11 +37,17 @@ static int sleepstate_pm_notifier(struct notifier_block *nb,
 {
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
-		gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 0);
+        /*qiuchangping@BSP 2016-05-19
+          add for when sync filesystem take long time and AP hold sensor
+          sometime sensor data will block the sleep process alway*/
+		/*gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 0);*/
 		break;
 
 	case PM_POST_SUSPEND:
-		gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 1);
+        /*qiuchangping@BSP 2016-05-19
+          add for when sync filesystem take long time and AP hold sensor
+          sometime sensor data will block the sleep process alway*/
+		/*gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 1);*/
 		break;
 	}
 	return NOTIFY_DONE;

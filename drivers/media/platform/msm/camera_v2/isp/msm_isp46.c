@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -341,7 +341,7 @@ static void msm_vfe46_process_error_status(struct vfe_device *vfe_dev)
 		pr_err("%s: status bf scale bus overflow\n", __func__);
 }
 
-static void msm_vfe46_read_irq_status_and_clear(struct vfe_device *vfe_dev,
+static void msm_vfe46_read_irq_status(struct vfe_device *vfe_dev,
 	uint32_t *irq_status0, uint32_t *irq_status1)
 {
 	*irq_status0 = msm_camera_io_r(vfe_dev->vfe_base + 0x6C);
@@ -363,13 +363,6 @@ static void msm_vfe46_read_irq_status_and_clear(struct vfe_device *vfe_dev,
 		vfe_dev->error_info.violation_status =
 		msm_camera_io_r(vfe_dev->vfe_base + 0x7C);
 
-}
-
-static void msm_vfe46_read_irq_status(struct vfe_device *vfe_dev,
-	uint32_t *irq_status0, uint32_t *irq_status1)
-{
-	*irq_status0 = msm_camera_io_r(vfe_dev->vfe_base + 0x6C);
-	*irq_status1 = msm_camera_io_r(vfe_dev->vfe_base + 0x70);
 }
 
 static void msm_vfe46_process_reg_update(struct vfe_device *vfe_dev,
@@ -498,12 +491,6 @@ static void msm_vfe46_reg_update(struct vfe_device *vfe_dev,
 		vfe_dev->reg_update_requested;
 	if ((vfe_dev->is_split && vfe_dev->pdev->id == ISP_VFE1) &&
 		((frame_src == VFE_PIX_0) || (frame_src == VFE_SRC_MAX))) {
-		if (!vfe_dev->common_data->dual_vfe_res->vfe_base[ISP_VFE0]) {
-			pr_err("%s vfe_base for ISP_VFE0 is NULL\n", __func__);
-			spin_unlock_irqrestore(&vfe_dev->reg_update_lock,
-				flags);
-			return;
-		}
 		msm_camera_io_w_mb(update_mask,
 			vfe_dev->common_data->dual_vfe_res->vfe_base[ISP_VFE0]
 			+ 0x3D8);
@@ -628,12 +615,6 @@ static void msm_vfe46_axi_clear_wm_irq_mask(struct vfe_device *vfe_dev,
 {
 	msm_vfe46_config_irq(vfe_dev, (1 << (stream_info->wm[0] + 8)), 0,
 				MSM_ISP_IRQ_DISABLE);
-}
-
-static void msm_vfe46_axi_clear_irq_mask(struct vfe_device *vfe_dev)
-{
-	msm_camera_io_w_mb(0x0, vfe_dev->vfe_base + 0x5C);
-	msm_camera_io_w_mb(0x0, vfe_dev->vfe_base + 0x60);
 }
 
 static void msm_vfe46_cfg_framedrop(void __iomem *vfe_base,
@@ -824,18 +805,15 @@ static int msm_vfe46_start_fetch_engine(struct vfe_device *vfe_dev,
 			fe_cfg->stream_id);
 		vfe_dev->fetch_engine_info.bufq_handle = bufq_handle;
 
-		mutex_lock(&vfe_dev->buf_mgr->lock);
 		rc = vfe_dev->buf_mgr->ops->get_buf_by_index(
 			vfe_dev->buf_mgr, bufq_handle, fe_cfg->buf_idx, &buf);
 		if (rc < 0 || !buf) {
 			pr_err("%s: No fetch buffer rc= %d buf= %pK\n",
 				__func__, rc, buf);
-			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			return -EINVAL;
 		}
 		mapped_info = buf->mapped_info[0];
 		buf->state = MSM_ISP_BUFFER_STATE_DISPATCHED;
-		mutex_unlock(&vfe_dev->buf_mgr->lock);
 	} else {
 		rc = vfe_dev->buf_mgr->ops->map_buf(vfe_dev->buf_mgr,
 			&mapped_info, fe_cfg->fd);
@@ -1882,8 +1860,6 @@ struct msm_vfe_hardware_info vfe46_hw_info = {
 	.vfe_ops = {
 		.irq_ops = {
 			.read_irq_status = msm_vfe46_read_irq_status,
-			.read_irq_status_and_clear =
-				msm_vfe46_read_irq_status_and_clear,
 			.process_camif_irq = msm_vfe46_process_input_irq,
 			.process_reset_irq = msm_vfe46_process_reset_irq,
 			.process_halt_irq = msm_vfe46_process_halt_irq,
@@ -1903,8 +1879,6 @@ struct msm_vfe_hardware_info vfe46_hw_info = {
 			.clear_comp_mask = msm_vfe46_axi_clear_comp_mask,
 			.cfg_wm_irq_mask = msm_vfe46_axi_cfg_wm_irq_mask,
 			.clear_wm_irq_mask = msm_vfe46_axi_clear_wm_irq_mask,
-			.clear_irq_mask =
-				msm_vfe46_axi_clear_irq_mask,
 			.cfg_framedrop = msm_vfe46_cfg_framedrop,
 			.clear_framedrop = msm_vfe46_clear_framedrop,
 			.cfg_wm_reg = msm_vfe46_axi_cfg_wm_reg,

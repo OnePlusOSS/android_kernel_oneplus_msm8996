@@ -4239,7 +4239,10 @@ static ssize_t mdss_mdp_cmd_autorefresh_store(struct device *dev,
 		pr_err("kstrtoint failed. rc=%d\n", rc);
 		return rc;
 	}
-
+	#if (defined MDSS_OEM_PORTING)
+	/*yankelong add for autorefresh,if this count is equal to the last one,not apply this time*/
+	else if(frame_cnt != ctl->autorefresh_frame_cnt){
+	#endif
 	rc = mdss_mdp_ctl_cmd_set_autorefresh(ctl, frame_cnt);
 	if (rc) {
 		pr_err("cmd_set_autorefresh failed, rc=%d, frame_cnt=%d\n",
@@ -4256,7 +4259,10 @@ static ssize_t mdss_mdp_cmd_autorefresh_store(struct device *dev,
 		mfd->mdp_sync_pt_data.threshold = 1;
 		mfd->mdp_sync_pt_data.retire_threshold = 1;
 	}
-
+		#if (defined MDSS_OEM_PORTING)
+		ctl->autorefresh_frame_cnt = frame_cnt;
+	}
+		#endif
 	pr_debug("setting cmd autorefresh to cnt=%d\n", frame_cnt);
 
 	return len;

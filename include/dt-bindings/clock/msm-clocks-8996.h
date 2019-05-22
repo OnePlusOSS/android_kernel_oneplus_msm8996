@@ -36,6 +36,7 @@
 #define clk_ce1_a_clk			0x44a833fe
 #define clk_cnoc_msmbus_clk		0x62228b5d
 #define clk_cnoc_msmbus_a_clk		0x67442955
+#define clk_uart_cnoc_msmbus_a_clk	0x799be48c
 #define clk_cxo_clk_src_ao		0x64eb6004
 #define clk_cxo_dwc3_clk		0xf79c19f6
 #define clk_cxo_lpm_clk			0x94adbf3d
@@ -72,6 +73,7 @@
 #define clk_rf_clk2_pin_ao		0x2d75eb4d
 #define clk_snoc_msmbus_clk		0xe6900bb6
 #define clk_snoc_msmbus_a_clk		0x5d4683bd
+#define clk_uart_snoc_msmbus_a_clk	0xe623f321
 #define clk_mcd_ce1_clk			0xbb615d26
 #define clk_qcedev_ce1_clk		0x293f97b0
 #define clk_qcrypto_ce1_clk		0xa6ac14df

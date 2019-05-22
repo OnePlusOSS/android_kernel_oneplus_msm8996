@@ -87,6 +87,10 @@ static int qpnp_write_wrapper(struct qpnp_rtc *rtc_dd, u8 *rtc_val,
 	int rc;
 	struct spmi_device *spmi = rtc_dd->spmi;
 
+    if (base == (rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1)) {
+	    dev_err(rtc_dd->rtc_dev, "write ALARM_CTRL1=0x%x\n", *rtc_val);
+    }
+
 	rc = spmi_ext_register_writel(spmi->ctrl, spmi->sid, base, rtc_val,
 					count);
 	if (rc) {
@@ -402,7 +406,7 @@ qpnp_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 	ctrl_reg = rtc_dd->alarm_ctrl_reg1;
 	ctrl_reg = enabled ? (ctrl_reg | BIT_RTC_ALARM_ENABLE) :
 				(ctrl_reg & ~BIT_RTC_ALARM_ENABLE);
-
+    dev_err(rtc_dd->rtc_dev, "%s,%d write ALARM_CTRL1=0x%x\n",__func__,__LINE__,ctrl_reg);
 	rc = qpnp_write_wrapper(rtc_dd, &ctrl_reg,
 			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
 	if (rc) {
@@ -479,6 +483,8 @@ static int qpnp_rtc_probe(struct spmi_device *spmi)
 	struct qpnp_rtc *rtc_dd;
 	struct resource *resource;
 	struct spmi_resource *spmi_resource;
+	struct rtc_wkalrm alarm;
+	struct rtc_time now;
 
 	rtc_dd = devm_kzalloc(&spmi->dev, sizeof(*rtc_dd), GFP_KERNEL);
 	if (rtc_dd == NULL) {
@@ -617,6 +623,27 @@ static int qpnp_rtc_probe(struct spmi_device *spmi)
 
 	dev_dbg(&spmi->dev, "Probe success !!\n");
 
+	rc = qpnp_rtc_read_time(rtc_dd->rtc_dev, &now);
+	if (rc) {
+	    dev_err(&spmi->dev, "Unable to read RTC time\n");
+		return rc;
+	}
+
+	rc = qpnp_rtc_read_alarm(rtc_dd->rtc_dev, &alarm);
+	if (rc) {
+		dev_err(&spmi->dev, "Unable to read RTC alarm time\n");
+		return rc;
+	}
+
+	if (alarm.enabled && rtc_tm_to_ktime(now).tv64 >
+		rtc_tm_to_ktime(alarm.time).tv64) {
+		rc = qpnp_rtc_alarm_irq_enable(rtc_dd->rtc_dev, 0);
+		if (rc) {
+			dev_err(&spmi->dev, "Unable to disable alarm irq\n");
+			return rc;
+		}
+	}
+
 	return 0;
 
 fail_req_irq:
@@ -649,6 +676,14 @@ static void qpnp_rtc_shutdown(struct spmi_device *spmi)
 	struct qpnp_rtc *rtc_dd;
 	bool rtc_alarm_powerup;
 
+    struct rtc_wkalrm alarm;
+
+    qpnp_rtc_read_alarm(&spmi->dev, &alarm);
+    dev_err(&spmi->dev, "Alarm set for - h:r:s=%d:%d:%d, d/m/y=%d/%d/%d\n",
+	        alarm.time.tm_hour, alarm.time.tm_min,
+	        alarm.time.tm_sec, alarm.time.tm_mday,
+	        alarm.time.tm_mon, alarm.time.tm_year);
+
 	if (!spmi) {
 		pr_err("qpnp-rtc: spmi device not found\n");
 		return;
@@ -662,10 +697,12 @@ static void qpnp_rtc_shutdown(struct spmi_device *spmi)
 	if (!rtc_alarm_powerup && !poweron_alarm) {
 		spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
 		dev_dbg(&spmi->dev, "Disabling alarm interrupts\n");
+		dev_err(&spmi->dev, "Disabling alarm interrupts\n");
 
 		/* Disable RTC alarms */
 		reg = rtc_dd->alarm_ctrl_reg1;
 		reg &= ~BIT_RTC_ALARM_ENABLE;
+		dev_err(rtc_dd->rtc_dev, "%s,%d write ALARM_CTRL1=0x%x\n",__func__,__LINE__,reg);
 		rc = qpnp_write_wrapper(rtc_dd, &reg,
 			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
 		if (rc) {

@@ -50,7 +50,6 @@ typedef struct lmc___ctl lmc_ctl_t;
 //	#define SLOW_DOWN_IO udelay(2);
 //	#undef __SLOW_DOWN_IO
 //	#define __SLOW_DOWN_IO udelay(2);
-//#endif
 
 #define DELAY(n) SLOW_DOWN_IO
 

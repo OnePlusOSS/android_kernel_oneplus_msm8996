@@ -28,6 +28,15 @@
 #include <asm/setup.h>  /* for COMMAND_LINE_SIZE */
 #include <asm/page.h>
 
+/*add by yangrujin@bsp 2015/11/10, porting from oneplus2 for ftm mode get ddr size*/
+#include <linux/module.h>
+static unsigned long long ddr_size = 0;
+module_param(ddr_size, ullong, S_IRUGO);
+MODULE_PARM_DESC(ddr_size, "ddr size");
+
+//hefaxi@bsp, 2015/11/02, add for param partition module.
+void init_param_mem_base_size(phys_addr_t base, unsigned long size);
+
 /*
  * of_fdt_limit_memory - limit the number of regions in the /memory node
  * @limit: maximum entries
@@ -478,6 +487,11 @@ static int __init __reserved_mem_reserve_reg(unsigned long node,
 			pr_info("Reserved memory: failed to reserve memory for node '%s': base %pa, size %ld MiB\n",
 				uname, &base, (unsigned long)size / SZ_1M);
 
+//hefaxi@bsp, 2015/11/02, add for param partition module.
+			if(!strncmp(uname, "param_mem",9)){
+				init_param_mem_base_size(base,size);
+			}
+
 		len -= t_len;
 		if (first) {
 			fdt_reserved_mem_save_node(node, uname, base, size);
@@ -898,7 +912,8 @@ int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 			continue;
 		pr_debug(" - %llx ,  %llx\n", (unsigned long long)base,
 		    (unsigned long long)size);
-
+/*add by yangrujin@bsp 2015/11/10, porting from oneplus2 for ftm mode get ddr size*/
+        ddr_size += size;
 		early_init_dt_add_memory_arch(base, size);
 	}
 

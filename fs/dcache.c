@@ -554,6 +554,7 @@ static struct dentry *dentry_kill(struct dentry *dentry)
 
 failed:
 	spin_unlock(&dentry->d_lock);
+	cpu_relax();
 	return dentry; /* try again with same dentry */
 }
 
@@ -732,8 +733,6 @@ void dput(struct dentry *dentry)
 		return;
 
 repeat:
-	might_sleep();
-
 	rcu_read_lock();
 	if (likely(fast_dput(dentry))) {
 		rcu_read_unlock();
@@ -765,10 +764,8 @@ repeat:
 
 kill_it:
 	dentry = dentry_kill(dentry);
-	if (dentry) {
-		cond_resched();
+	if (dentry)
 		goto repeat;
-	}
 }
 EXPORT_SYMBOL(dput);
 

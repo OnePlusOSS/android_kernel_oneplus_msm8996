@@ -59,7 +59,7 @@ static DEFINE_MUTEX(misc_mtx);
 /*
  * Assigned numbers, used for dynamic minors
  */
-#define DYNAMIC_MINORS 96 /* like dynamic majors */
+#define DYNAMIC_MINORS 128 /* like dynamic majors */
 static DECLARE_BITMAP(misc_minors, DYNAMIC_MINORS);
 
 #ifdef CONFIG_PROC_FS
@@ -201,6 +201,13 @@ int misc_register(struct miscdevice * misc)
 				goto out;
 			}
 		}
+		/*LiWei added.
+		 *If minor number is set to 1, and we call misc_register funtion and
+		 *misc->minor== MISC_DYNAMIC_MINOR, maybe get minor number is 1. So de
+		 *vice_create ret is fail. So we should set_bit in misc_minors
+		 */
+		if(misc->minor < DYNAMIC_MINORS)
+			set_bit(DYNAMIC_MINORS -misc->minor -1, misc_minors);
 	}
 
 	dev = MKDEV(MISC_MAJOR, misc->minor);

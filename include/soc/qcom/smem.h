@@ -111,6 +111,8 @@ enum {
 	SMEM_ID_VENDOR0,
 	SMEM_ID_VENDOR1,
 	SMEM_ID_VENDOR2,
+        //For more details, could check boot_iamges/core/api/mproc/smem_type.h
+	SMEM_PROJECT_INFO = 136,
 	SMEM_HW_SW_BUILD_ID,
 	SMEM_SMD_BASE_ID_2,
 	SMEM_SMD_FIFO_BASE_ID_2 = SMEM_SMD_BASE_ID_2 +

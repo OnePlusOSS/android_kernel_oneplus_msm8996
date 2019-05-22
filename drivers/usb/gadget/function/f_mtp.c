@@ -39,11 +39,37 @@
 #include <linux/usb/f_mtp.h>
 #include <linux/configfs.h>
 #include <linux/usb/composite.h>
+#include <linux/pm_qos.h>
 
 #include "configfs.h"
 
 #define MTP_RX_BUFFER_INIT_SIZE    1048576
 #define MTP_BULK_BUFFER_SIZE       16384
+
+// Currently tx and rx buffer len is 131072, inter buffer len is 28.
+// Tx buffer counts is 4, Rx is 2 and intr is 5.
+// In order avoid MTP can't work issue, use fixed memory.
+// 0xAC400000(0xffffffc02c400000) ------
+//                               |  TX  | 0x20000 * 4
+// 0xAC480000(0xffffffc02c480000) ------
+//                               |  RX  | 0x20000 * 2
+// 0xAC4C0000(0xffffffc02c4c0000) ------
+//                               | INTR | 0x40(alignment) * 5
+//                                ------
+//Anderson@, 2016/06/30, MTP can't work
+//0xAC400000, 0xAC420000, 0xAC440000, 0xAC460000
+#define MTP_TX_BUFFER_BASE           0xAC400000
+//0xAC480000, 0xAC4A0000
+#define MTP_RX_BUFFER_BASE           0xAC480000
+//0xAC4C0000, 0xAC4C0040, 0xAC4C0080, 0xAC4C00C0, 0xAC4C0100
+#define MTP_INTR_BUFFER_BASE         0xAC4C0000
+static int mtpBufferOffset =0;
+static bool useFixAddr = false;
+enum buf_type {
+	TX_BUFFER = 0,
+	RX_BUFFER,
+	INTR_BUFFER,
+};
 #define INTR_BUFFER_SIZE           28
 #define MAX_INST_NAME_LEN          40
 
@@ -77,6 +103,7 @@
 #define DRIVER_NAME "mtp"
 
 #define MAX_ITERATION		100
+#define PM_QOS_TIMEOUT		2000000
 
 unsigned int mtp_rx_req_len = MTP_RX_BUFFER_INIT_SIZE;
 module_param(mtp_rx_req_len, uint, S_IRUGO | S_IWUSR);
@@ -88,6 +115,10 @@ unsigned int mtp_tx_reqs = MTP_TX_REQ_MAX;
 module_param(mtp_tx_reqs, uint, S_IRUGO | S_IWUSR);
 
 static const char mtp_shortname[] = DRIVER_NAME "_usb";
+static struct pm_qos_request little_cpu_mtp_freq;
+static struct pm_qos_request big_cpu_mtp_freq;
+static struct delayed_work cpu_freq_qos_work;
+static struct workqueue_struct *cpu_freq_qos_queue;
 
 struct mtp_dev {
 	struct usb_function function;
@@ -146,9 +177,9 @@ static struct usb_interface_descriptor mtp_interface_desc = {
 	.bDescriptorType        = USB_DT_INTERFACE,
 	.bInterfaceNumber       = 0,
 	.bNumEndpoints          = 3,
-	.bInterfaceClass        = USB_CLASS_VENDOR_SPEC,
-	.bInterfaceSubClass     = USB_SUBCLASS_VENDOR_SPEC,
-	.bInterfaceProtocol     = 0,
+	.bInterfaceClass        = USB_CLASS_STILL_IMAGE,
+	.bInterfaceSubClass     = 1,
+	.bInterfaceProtocol     = 1,
 };
 
 static struct usb_interface_descriptor ptp_interface_desc = {
@@ -407,18 +438,42 @@ static inline struct mtp_dev *func_to_mtp(struct usb_function *f)
 {
 	return container_of(f, struct mtp_dev, function);
 }
-
-static struct usb_request *mtp_request_new(struct usb_ep *ep, int buffer_size)
+//Anderson@, 2016/06/30, MTP can't work
+static struct usb_request *mtp_request_new(struct usb_ep *ep, int buffer_size, enum buf_type type)
 {
 	struct usb_request *req = usb_ep_alloc_request(ep, GFP_KERNEL);
 	if (!req)
 		return NULL;
 
 	/* now allocate buffers for the requests */
-	req->buf = kmalloc(buffer_size, GFP_KERNEL);
+	//Anderson@, 2016/06/30, MTP can't work
+	if(useFixAddr == true) {
+		if(type == TX_BUFFER){
+			req->buf = __va(MTP_TX_BUFFER_BASE + mtpBufferOffset);
+		}
+		else if(type == RX_BUFFER){
+			req->buf = __va(MTP_RX_BUFFER_BASE + mtpBufferOffset);
+		}
+		else{
+			req->buf = __va(MTP_INTR_BUFFER_BASE + mtpBufferOffset);
+		}
+	}
+	else{
+		req->buf = kmalloc(buffer_size, GFP_KERNEL);
+	}
+	memset(req->buf, 0, buffer_size);
+
 	if (!req->buf) {
 		usb_ep_free_request(ep, req);
 		return NULL;
+	}
+
+	//Anderson@, 2016/06/30, MTP can't work
+	if(useFixAddr == true) {
+		if(buffer_size == INTR_BUFFER_SIZE)
+			mtpBufferOffset += 0x40; /*alignment*/
+		else
+			mtpBufferOffset += buffer_size;
 	}
 
 	return req;
@@ -427,7 +482,14 @@ static struct usb_request *mtp_request_new(struct usb_ep *ep, int buffer_size)
 static void mtp_request_free(struct usb_request *req, struct usb_ep *ep)
 {
 	if (req) {
-		kfree(req->buf);
+		//Anderson@, 2016/06/30, MTP can't work
+		if(useFixAddr == true) {
+			req->buf = NULL;
+			mtpBufferOffset = 0;
+		}
+		else
+			kfree(req->buf);
+
 		usb_ep_free_request(ep, req);
 	}
 }
@@ -555,10 +617,18 @@ retry_tx_alloc:
 	if (mtp_tx_req_len > MTP_BULK_BUFFER_SIZE)
 		mtp_tx_reqs = 4;
 
+	//Anderson@, 2016/06/30, MTP can't work
+	if(mtp_tx_req_len == 131072 && mtp_rx_req_len == 131072 && mtp_tx_reqs == 4)
+		useFixAddr = true;
+	else
+		useFixAddr = false;
+	pr_info("useFixAddr:%s\n", useFixAddr?"true":"false");
+	mtpBufferOffset =0;
 	/* now allocate requests for our endpoints */
-	for (i = 0; i < dev->mtp_tx_reqs; i++) {
+	for (i = 0; i < mtp_tx_reqs; i++) {
+		//Anderson@, 2016/06/30, MTP can't work
 		req = mtp_request_new(dev->ep_in,
-				dev->mtp_tx_req_len + extra_buf_alloc);
+				mtp_tx_req_len + extra_buf_alloc, TX_BUFFER);
 		if (!req) {
 			if (dev->mtp_tx_req_len <= MTP_BULK_BUFFER_SIZE)
 				goto fail;
@@ -581,9 +651,14 @@ retry_tx_alloc:
 	if (dev->mtp_rx_req_len % 1024)
 		dev->mtp_rx_req_len = MTP_BULK_BUFFER_SIZE;
 
+
+
 retry_rx_alloc:
+	//Anderson@, 2016/06/30, MTP can't work
+	mtpBufferOffset =0;
 	for (i = 0; i < RX_REQ_MAX; i++) {
-		req = mtp_request_new(dev->ep_out, dev->mtp_rx_req_len);
+		//Anderson@, 2016/06/30, MTP can't work
+		req = mtp_request_new(dev->ep_out, mtp_rx_req_len, RX_BUFFER);
 		if (!req) {
 			if (dev->mtp_rx_req_len <= MTP_BULK_BUFFER_SIZE)
 				goto fail;
@@ -595,15 +670,20 @@ retry_rx_alloc:
 		req->complete = mtp_complete_out;
 		dev->rx_req[i] = req;
 	}
+
+	//Anderson@, 2016/06/30, MTP can't work
+	mtpBufferOffset =0;
 	for (i = 0; i < INTR_REQ_MAX; i++) {
+		//Anderson@, 2016/06/30, MTP can't work
 		req = mtp_request_new(dev->ep_intr,
-				INTR_BUFFER_SIZE + extra_buf_alloc);
+				INTR_BUFFER_SIZE + extra_buf_alloc, INTR_BUFFER);
 		if (!req)
 			goto fail;
 		req->complete = mtp_complete_intr;
 		mtp_req_put(dev, &dev->intr_idle, req);
 	}
-
+	//Anderson@, 2016/06/30, MTP can't work
+	mtpBufferOffset =0;
 	return 0;
 
 fail:
@@ -820,6 +900,14 @@ static void send_file_work(struct work_struct *data)
 
 	DBG(cdev, "send_file_work(%lld %lld)\n", offset, count);
 
+	if (dev->xfer_file_length >= 10 * 1024 * 1024) {
+		pm_qos_update_request(&little_cpu_mtp_freq, MAX_CPUFREQ);
+		pm_qos_update_request(&big_cpu_mtp_freq, MAX_CPUFREQ);
+	} else {
+		pm_qos_update_request_timeout(&little_cpu_mtp_freq, MAX_CPUFREQ, PM_QOS_TIMEOUT);
+		pm_qos_update_request_timeout(&big_cpu_mtp_freq, MAX_CPUFREQ, PM_QOS_TIMEOUT);
+	}
+
 	if (dev->xfer_send_header) {
 		hdr_size = sizeof(struct mtp_data_header);
 		count += hdr_size;
@@ -910,6 +998,10 @@ static void send_file_work(struct work_struct *data)
 
 	if (req)
 		mtp_req_put(dev, &dev->tx_idle, req);
+	if (dev->xfer_file_length >= 10 * 1024 * 1024) {
+		pm_qos_update_request(&little_cpu_mtp_freq, 0);
+		pm_qos_update_request(&big_cpu_mtp_freq, 0);
+	}
 
 	DBG(cdev, "send_file_work returning %d state:%d\n", r, dev->state);
 	/* write the result */
@@ -941,7 +1033,10 @@ static void receive_file_work(struct work_struct *data)
 	if (!IS_ALIGNED(count, dev->ep_out->maxpacket))
 		DBG(cdev, "%s- count(%lld) not multiple of mtu(%d)\n", __func__,
 						count, dev->ep_out->maxpacket);
-
+	if (delayed_work_pending(&cpu_freq_qos_work))
+		cancel_delayed_work(&cpu_freq_qos_work);
+        pm_qos_update_request(&little_cpu_mtp_freq, MAX_CPUFREQ);
+        pm_qos_update_request(&big_cpu_mtp_freq, MAX_CPUFREQ);
 	while (count > 0 || write_req) {
 		if (count > 0) {
 			/* queue a request */
@@ -1018,10 +1113,17 @@ static void receive_file_work(struct work_struct *data)
 		}
 	}
 
+	queue_delayed_work(cpu_freq_qos_queue, &cpu_freq_qos_work, msecs_to_jiffies(1000)*3);
 	DBG(cdev, "receive_file_work returning %d\n", r);
 	/* write the result */
 	dev->xfer_result = r;
 	smp_wmb();
+}
+
+void update_qos_request(struct work_struct *data)
+{
+        pm_qos_update_request(&little_cpu_mtp_freq, 0);
+        pm_qos_update_request(&big_cpu_mtp_freq, 0);
 }
 
 static int mtp_send_event(struct mtp_dev *dev, struct mtp_event *event)
@@ -1719,6 +1821,10 @@ static int __mtp_setup(struct mtp_instance *fi_mtp)
 	INIT_WORK(&dev->send_file_work, send_file_work);
 	INIT_WORK(&dev->receive_file_work, receive_file_work);
 
+	cpu_freq_qos_queue = create_singlethread_workqueue("f_mtp_qos");
+        INIT_DELAYED_WORK(&cpu_freq_qos_work, update_qos_request);
+        pm_qos_add_request(&little_cpu_mtp_freq, PM_QOS_C0_CPUFREQ_MIN, MIN_CPUFREQ);
+        pm_qos_add_request(&big_cpu_mtp_freq, PM_QOS_C1_CPUFREQ_MIN, MIN_CPUFREQ);
 	_mtp_dev = dev;
 
 	ret = misc_register(&mtp_device);
@@ -1729,6 +1835,9 @@ static int __mtp_setup(struct mtp_instance *fi_mtp)
 	return 0;
 
 err2:
+	pm_qos_remove_request(&big_cpu_mtp_freq);
+        pm_qos_remove_request(&little_cpu_mtp_freq);
+        destroy_workqueue(cpu_freq_qos_queue);
 	destroy_workqueue(dev->wq);
 err1:
 	_mtp_dev = NULL;
@@ -1756,6 +1865,9 @@ static void mtp_cleanup(void)
 		return;
 
 	mtp_debugfs_remove();
+	pm_qos_remove_request(&big_cpu_mtp_freq);
+        pm_qos_remove_request(&little_cpu_mtp_freq);
+        destroy_workqueue(cpu_freq_qos_queue);
 	misc_deregister(&mtp_device);
 	destroy_workqueue(dev->wq);
 	_mtp_dev = NULL;

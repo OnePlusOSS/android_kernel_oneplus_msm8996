@@ -45,6 +45,12 @@
 #define SCM_EDLOAD_MODE			0X01
 #define SCM_DLOAD_CMD			0x10
 
+#define DEVICE_INFO_SIZE 2048
+extern char device_info[DEVICE_INFO_SIZE];
+extern char oem_ufs_manufacture_info[16];
+extern char oem_ufs_fw_version[3];
+extern uint32_t chip_serial_num;
+extern struct boot_shared_imem_cookie_type *boot_shared_imem_cookie_ptr;
 
 static int restart_mode;
 static void *restart_reason;
@@ -95,6 +101,12 @@ struct reset_attribute {
 module_param_call(download_mode, dload_set, param_get_int,
 			&download_mode, 0644);
 
+//hefaxi@filesystems, 2015/12/07, add for force dump function
+int oem_get_download_mode(void)
+{
+	return download_mode;
+}
+
 static int panic_prep_restart(struct notifier_block *this,
 			      unsigned long event, void *ptr)
 {
@@ -132,6 +144,7 @@ int scm_set_dload_mode(int arg1, int arg2)
 static void set_dload_mode(int on)
 {
 	int ret;
+    printk("set_dload_mode %s\n", on ? "ON" : "OFF");
 
 	if (dload_mode_addr) {
 		__raw_writel(on ? 0xE47B337D : 0, dload_mode_addr);
@@ -299,6 +312,29 @@ static void msm_restart_prepare(const char *cmd)
 	}
 
 	if (cmd != NULL) {
+/* add by yangrujin@bsp 2016/4/6, set warm reboot magic and store reboot reason for wlan/rf/ftm/kernel/modem/android mode*/
+        if (!strncmp(cmd, "rf", 2)) {
+            qpnp_pon_set_restart_reason(PON_RESTART_REASON_RF);
+	        __raw_writel(RF_MODE, restart_reason);
+	    }else if(!strncmp(cmd, "wlan", 4)){
+	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_WLAN);
+	        __raw_writel(WLAN_MODE, restart_reason);
+	    }else if(!strncmp(cmd, "mos", 3)) {
+	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_MOS);
+	        __raw_writel(MOS_MODE, restart_reason);
+	    }else if(!strncmp(cmd, "ftm", 3)) {
+	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_FACTORY);
+	        __raw_writel(FACTORY_MODE, restart_reason);
+	    }else if(!strncmp(cmd, "kernel", 6)) {
+	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_KERNEL);
+	        __raw_writel(KERNEL_MODE, restart_reason);
+	    }else if (!strncmp(cmd, "modem", 5)) {
+	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_MODEM);
+	        __raw_writel(MODEM_MODE, restart_reason);
+	    }else if (!strncmp(cmd, "android", 7)) {
+	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_ANDROID);
+	        __raw_writel(ANDROID_MODE, restart_reason);
+	    }else
 		if (!strncmp(cmd, "bootloader", 10)) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_BOOTLOADER);
@@ -307,7 +343,15 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RECOVERY);
 			__raw_writel(0x77665502, restart_reason);
-		} else if (!strcmp(cmd, "rtc")) {
+		}
+
+                else if (!strcmp(cmd, "aging")) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_AGING);
+			__raw_writel(0x77665510, restart_reason);
+              }
+
+                else if (!strcmp(cmd, "rtc")) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RTC);
 			__raw_writel(0x77665503, restart_reason);
@@ -333,10 +377,18 @@ static void msm_restart_prepare(const char *cmd)
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
 		} else {
+		/* add by yangrujin@bsp 2016/4/6, unexpect reboot parameter will reboot to normal android*/
+			pr_notice("%s : cmd is %s, set to reboot mode\n", __func__, cmd);
+			qpnp_pon_set_restart_reason(PON_RESTART_REASON_REBOOT);
 			__raw_writel(0x77665501, restart_reason);
 		}
 	}
-
+/* add by yangrujin@bsp 2016/4/6, reboot without parameter will reboot to normal android*/
+    else {
+        pr_notice("%s : cmd is NULL, set to reboot mode\n", __func__);
+        qpnp_pon_set_restart_reason(PON_RESTART_REASON_REBOOT);
+        __raw_writel(0x77665501, restart_reason);
+    }
 	flush_cache_all();
 
 	/*outer_flush_all is not supported by 64bit kernel*/
@@ -518,6 +570,19 @@ static int msm_restart_probe(struct platform_device *pdev)
 		if (!emergency_dload_mode_addr)
 			pr_err("unable to map imem EDLOAD mode offset\n");
 	}
+
+	sprintf(device_info + strlen(device_info),
+		"socinfo serial_number: 0x%08x\r\n"
+		"ufs manufacturer: %s\r\n"
+		"ufs firmware version: %s\r\n"
+		"kernel version: %s\r\n"
+		"boot command: %s\r\n",
+		(unsigned int) chip_serial_num, oem_ufs_manufacture_info, oem_ufs_fw_version, linux_banner, saved_command_line);
+	boot_shared_imem_cookie_ptr = ioremap(SHARED_IMEM_BOOT_BASE, sizeof(struct boot_shared_imem_cookie_type));
+	if(!boot_shared_imem_cookie_ptr)
+		pr_err("unable to map imem DLOAD mode offset for OEM usages\n");
+	else
+		__raw_writel(strlen(device_info), &(boot_shared_imem_cookie_ptr->device_info_size));
 
 	np = of_find_compatible_node(NULL, NULL,
 				"qcom,msm-imem-dload-type");
